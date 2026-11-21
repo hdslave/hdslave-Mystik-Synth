@@ -1,0 +1,196 @@
+# hdslave Mystik
+
+A west-coast hand drum for the Akai MPC Sample: one drum (an eight-mode membrane and a complex oscillator) struck by a
+hand through a modelled vactrol low-pass gate, played by its own six-mode sequencer, through four very cheap effects,
+with its own page on the MPC's screen. A CLAP instrument for Melodee on the MPC Sample (64-bit ARM Linux); its page
+needs [hdslaveOS](https://github.com/hdslave/hdslaveOS) (other hosts show the parameter list).
+
+![The pages as Melodee shows them](docs/pages.png)
+
+![A tour: PLAY while it plays, SEQ, GATE, then MODE switched to Automaton](docs/mystik-pages.gif)
+
+- **The gate** is the 292-style low-pass gate of Parker and D'Angelo's model: the vactrol's LDR curve, a light that
+  rises in about 12 ms and falls in about 250 ms (slower as it darkens), the circuit's own transfer function for VCA,
+  Combo and Lowpass and everything between, its resonance. A strike lights it; brightness and loudness fall together,
+  as a struck object's do.
+- **The drum** is a membrane (eight modes as rotations, so bends and slides stay clean) of eight bodies (tabla, conga,
+  frame drum, udu, slit log drum, handpan, singing bowl, iron bell) struck by a hand: a soft or hard contact, a noise
+  burst, eight strokes (open, slap, bass, mute, ghost, flam, roll, press), a pitch bend that follows the hit (a
+  talking drum's), all mixed with a complex oscillator (phase modulation by a second sine, feedback from the gate,
+  a wavefolder) that the gate's light can open further (Bloom).
+- **The sequencer** can be off; on, it plays 16 steps (pitch as a scale degree, trig, stroke, chance) as Pattern,
+  Euclid, Turing, Automaton, Bounce or Rhythm (14 traditional timelines from tresillo to teental), with slides,
+  303-style accents that build on each other, swing, density, rotation, mutation, twelve scales (Pelog and Slendro
+  microtonal), a seed and Regenerate.
+- **The effects**: Drive, Crush, a ping-pong Echo synced to the tempo with Absorb in its loop, Space (a spring-like
+  tank of dispersive allpasses).
+- **Cost**: about 89,000 instructions a 128-frame block playing (1.9 % of one of the MPC's cores), 1,900 stopped;
+  a page frame about 380,000 instructions (0.2 ms), redrawing only what moved.
+
+Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
+
+## Install
+
+Copy `Mystik.clap` (built as below, or from the card's staging) to the card as
+`Melodee/Plugins/hdslave Mystik/hdslave Mystik.clap`, with this README and `LICENSE-OFL-departure-mono.txt`.
+Load it on a plug-in track. The page shows on Edit and Stage's EDIT under hdslaveOS.
+
+## Playing it
+
+Minus and Plus turn the pages; Shift shows what the controls do on the page in view.
+
+| Page | Picture | Wheel | Push | K1 / K2 / K3 |
+|---|---|---|---|---|
+| PLAY | the vactrol's light as an orb (the model's own light level), the ring of steps (accents, slides, the step playing), a phosphor scope, the gate's cutoff now | picks a trio for the pots: TONE, HIT, SKIN, WEIRD, GROOVE, SPACE | Sequencer on/off; Shift + Push: Regenerate | the trio (TONE: Timbre, Decay, Resonance) |
+| SEQ | 16 lanes: pitch, trig, stroke letter, chance; the step playing lit | picks a step | cycles its trig (Rest, Hit, Accent, Slide, Acc+Slide); Shift + Push plays it | its Pitch, Stroke, Chance |
+| SKIN | the body's modes as struck at Position, the drum head | moves the cursor (Push to edit: the wheel then sets the value, Shift + wheel finely, Minus/Plus coarsely) | edit / done | the cursor's row and the next two |
+| OSC | one cycle of the oscillator as folded, at the gate's present light | as SKIN | | |
+| GATE | the gate's response now (20 Hz to 20 kHz) and the light's last 1.4 s | as SKIN | | |
+| FX | the chain, the echo's taps | as SKIN | | |
+| MODE | the mode at work: the Euclid ring, the Turing register, the automaton's last 16 generations, the bounces, the timeline's strokes | as SKIN (rows a mode does not use are dimmed) | | |
+
+Keys: with the sequencer on and the song playing a key transposes the pattern (from C3, latched); stopped, keys play
+the drum. With it off, Notes decides: **Pitch** (the key sets the pitch from C3; velocity 100 or more accents;
+overlapping keys slide and hold), **Strokes** (keys 36-43 play the eight strokes at Tune, each 8 keys up an octave:
+two drums, high and low, like a pair of bongos), **Steps** (keys 36-51 play steps 1-16). Pitch bend is +-2
+semitones, the mod wheel folds. Melodee's All Sound Off (CC 120 at 0) silences the drum and the tails, All Notes Off
+(CC 123 at 0) lets held notes go, a choke stops the drum.
+
+## Parameters
+
+Ids are fixed forever (a project keeps values by id); see `docs/design.md` for the table of ids.
+
+**Skin**
+
+| Name | Range | What it does |
+|---|---|---|
+| Tune | C-1 to C5 (default A2) | the drum's pitch; the sequencer's scale counts from it |
+| Source | 0-100 % | the oscillator (0) to the membrane (100) |
+| Body | Tabla, Conga, Frame, Udu, Slit, Handpan, Bowl, Bell | the membrane's modes: ratios, how the strike's place weighs them, their decays |
+| Ring | 30 ms - 4 s | the membrane's fundamental falls 60 dB in this (higher modes sooner, by the body) |
+| Position | centre to edge | where the hand lands: the centre rings the round modes, the edge the rest |
+| Snap | 0-100 % | the hand's noise: through the skin and straight into the gate (a slap's crack) |
+| Bend | -100 to +100 % | the hit raises the pitch, which falls back (negative: rises after, an udu's bloop); harder hits more |
+| Drift | 0-100 % | a slow random wander of the pitch (up to 0.6 semitone) |
+
+**Osc**
+
+| Name | Range | What it does |
+|---|---|---|
+| FM Index | 0-100 % | phase modulation of the principal by the modulator (up to 8 radians) |
+| FM Ratio | 1/2 ... 7, and 1.414, 1.594, 2.136, 2.296, 2.653, 2.918, 3.156 | the modulator's frequency; the last six are a membrane's own ratios (wooden, drum-like) |
+| Feedback | 0-100 % | the gate's output back into the oscillator's phase: grit, then chaos |
+| Timbre | 0-100 % | the wavefolder (a sine fold, up to 12 times) on oscillator and membrane alike |
+| Symmetry | -100 to +100 % | the fold's bias: even harmonics |
+| Bloom | 0-100 % | the gate's light opens the fold and the FM further: a strike brightens as it opens |
+
+**Gate**
+
+| Name | Range | What it does |
+|---|---|---|
+| Gate Mode | VCA ... Combo ... Lowpass | the 292's modes, morphed: VCA (loudness, little filtering), Combo (both, the classic), Lowpass (a resonant 2-pole) |
+| Resonance | 0-100 % | the Lowpass mode's feedback (and its capacitor brought in): a bump at 0, ringing like a pinged filter near 100 |
+| Strike | 0.5 - 30 ms | how long the LED is lit by a hit: longer opens the gate further and longer |
+| Decay | 25 ms - 2.5 s | the vactrol's fall (the VTL5C3's 250 ms at 50 %) |
+| Open | 0-100 % | a light that stays on: the gate never quite closes (a drone at 100 %) |
+| Hold | 0-100 % | while a step's gate (or a key) is held the LED stays lit this much: sustained, 303-like notes |
+| Memory | 0-100 % | a vactrol's light history: played often, it falls slower (up to 6 times) |
+| Accent | 0-100 % | how much harder an accent strikes; consecutive accents build on a capacitor (300 ms) |
+| Glide | 5 - 500 ms | a slide's time |
+
+**FX**: Drive (soft clip, up to 18 dB), Crush (sample rate to 1.5 kHz and bits to 3, together), Echo (the wet level),
+Echo Time (1/32 to 1/2, dotted and triplets, at the song's tempo), Repeats (to 105 %: it can run away, held by a soft
+clip), Absorb (14 kHz to 600 Hz in the loop), Space (the tank's level), Space Decay, Volume.
+
+**Sequencer**
+
+| Name | What it does |
+|---|---|
+| Sequencer | Off / On |
+| Seq Mode | Pattern, Euclid, Turing, Automaton, Bounce, Rhythm (below) |
+| Rate | 1/2 to 1/64, triplets: a step on each from the song's top, so the same place always plays the same step |
+| Length | 1-16 steps (Rhythm uses its timeline's) |
+| Direction | Forward, Backward, Ping-Pong, Brownian (a random walk, mostly forward), Random |
+| Swing | 50-75 %: every second step late, as an MPC's swing |
+| Gate | how long a step's gate is held (Hold uses it); a slide after holds it through |
+| Scale | Chromatic, Major, Minor, Dorian, Phrygian, Hijaz, Bhairav, Pent Minor, Pent Major, Hirajoshi, Pelog, Slendro |
+| Density | Pattern: under 50 % drops hits, over fills rests with ghost notes; Euclid: the pulses; Turing: how many register values play; Automaton: the first generation's cells; Bounce: the bounces |
+| Rotate | where the cycle starts |
+| Mutate | Pattern: some steps move a degree or two each pass; Euclid: hits flip; Turing: the chance the bit going round flips (0 locks the loop); Automaton: cells flip; Bounce: timing jitter; Rhythm: ghost notes in the rests |
+| Range | Turing's pitch spread (0.25-3 octaves) |
+| Accents | Euclid's accent ring, Turing's accents, the automaton's births, a timeline's bass strokes |
+| Rule | the automaton's rule, 0-255 (90 draws Sierpinski's triangle, 30 is chaos, 110 complex) |
+| Rhythm | Tresillo, Cinquillo, Son Clave, Rumba Clave, Bossa, Bell 12/8, Tumbao, Maqsum, Baladi, Saidi, Malfuf, Teental, Keherwa, Dadra, Rupak |
+| Curve | Bounce: each bounce this much shorter (x0.50-0.92) |
+| Seed | all the randomness (a hash of the step's place, the seed and a salt) |
+| Regenerate | a new Seed (told to the host) |
+| Notes | Pitch, Strokes, Steps (see Playing it) |
+
+Per step: **Pitch** (a degree of Scale, -21 to 21), **Trig** (Rest, Hit, Accent, Slide, Acc+Slide: a slide glides
+into the step without a new strike), **Stroke** (Open, Slap, Bass, Mute, Ghost, Flam, Roll, Press), **Chance**.
+
+The modes:
+
+- **Pattern**: the 16 steps as written, by Direction.
+- **Euclid**: Density x Length pulses spread as evenly as can be (the Bjorklund rhythms Toussaint found in timelines
+  the world over), each pulse playing its step; an accent ring among them.
+- **Turing**: a shift register of Length bits; the bit going round flips by Mutate, and its bits make the pitch, the
+  gate, accents and slides. Locked it loops; open it wanders.
+- **Automaton**: an elementary cellular automaton on a ring of Length cells, a generation each pass, live cells
+  playing their steps. The MODE page draws its history.
+- **Bounce**: a ball dropped each cycle: its bounces quicken and soften, each playing the next step.
+- **Rhythm**: a traditional timeline and its strokes (a doumbek's dum and tek, a tabla's dha and na, a conga's heel,
+  toe, slap and open), its pitches from the steps.
+
+## Presets
+
+Mystik (a conga line in Hijaz), West Bongo (the oscillator alone, pinged), Tabla Teental, Conga Tumbao, Udu Bloom,
+Acid Gate (a 303-ish line through the Lowpass mode), Turing Acid, Singing Bowl, Slit Euclid (Slendro), Handpan Drift,
+Maqsum Night, Feedback Witch, Bouncing Ball, Gankogui Bell (the standard bell pattern).
+
+## Sources, and what is inferred
+
+- The gate: Julian Parker and Stefano D'Angelo, "A Digital Model of the Buchla Lowpass-Gate", DAFx-13 (Maynooth,
+  2013): the LDR mapping `Rf = A / If^1.4 + B` (A = 3.464, B = 1136.212 ohm, If to 40 mA), the light's 12 ms rise and
+  250 ms fall, faster when bright, the transfer function `1 / (a1 + a2 s + a3 s^2)` and its coefficients, the component
+  values of the three modes, the resonance limit `amax`, the DC gain. Realised here as a trapezoidal state-variable
+  filter (each real pole prewarped, so the response holds to the analog one; the tests check it to 0.35 dB).
+- Membranes: the ideal circular membrane's Bessel-zero ratios (1, 1.594, 2.136, 2.296, 2.653, 2.918, 3.156, 3.501);
+  the tabla's near-harmonic modes from a loaded membrane (Raman); a free bar's ratios for the slit drum (1, 2.756,
+  5.404, 8.933, 13.34).
+- Euclidean rhythms: Godfried Toussaint, "The Euclidean Algorithm Generates Traditional Musical Rhythms" (2005):
+  tresillo E(3,8), cinquillo E(5,8), the standard bell E(7,12).
+- Inferred (chosen by ear and measurement, not from a source): how far a strike lights the vactrol (0.4 of full at
+  full force), the "faster when bright" curve (`0.4 + 0.6 (1 - x)^2` of the fall), Memory's history (0.5 s, up to x6),
+  the accent capacitor (half of what it lacks, 300 ms), Hold's level, the velocity level into the gate, the body tables
+  past the first ratios (amplitudes, decays, the udu, handpan, bowl and bell modes), the strokes' shapes, the bend's
+  times, Resonance bringing in the Lowpass mode's capacitor in the other modes, the timelines' strokes on one drum.
+
+## Building and testing
+
+Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colima profile `melodee`:
+
+    ./build.sh               # build/Mystik.clap, then the tests and the fingerprint
+    ./build.sh sanitize      # the host tests against an AddressSanitizer + UBSan build
+    tools/bench.sh           # instructions a block (callgrind): worst, acid, typical, stopped, a page frame
+    ./build.sh fingerprint-update   # only after a change meant to change the sound
+
+- `tests/host.cpp` (305,352 checks): the description, every parameter's text both ways, state, presets, the gate held
+  to the 292's response at seven settings, the vactrol's timing, steps to the sample (swing too), every sequencer mode,
+  stop and Play again, a loop the host tells a block late, the same output in blocks of 1, 37, 128 and 4096 frames,
+  keys and MIDI, Regenerate, extreme settings at 44.1, 48 and 96 kHz, and the page (its pictures in `build/`).
+- `tests/fingerprint.cpp`: a hash of every output sample over 44 scenarios (each preset, each mode, keys, MIDI, rates,
+  the transport, random settings, block sizes).
+- In Melodee's own host: `clap_check` (loads and plays it as Melodee does) and `melodee --melodee-plugin-screen` (its
+  pages in Melodee's screen, the K1-K3 bindings), with the hdslaveOS checkout mounted read-only.
+
+Cost (callgrind, 128-frame blocks at 48 kHz; about 4.8 million cycles a block on the MPC's 1.8 GHz A55): worst
+92,500, acid 91,200, typical 88,700, stopped 1,900 instructions a block; a page frame while it plays about 380,000.
+The voice runs at twice the rate (a 47-tap half-band filter brings it down), the membrane is two four-lane vectors,
+the slow parts (pitch, the membrane's angles, the vactrol's time constants, the gate's coefficients) are worked out
+every 8 inner samples and only when they moved, and a silent drum and silent effects cost nothing.
+
+## Licence
+
+No project licence yet. The page's font is Departure Mono (SIL Open Font License, `licenses/OFL-departure-mono.txt`);
+the CLAP headers are MIT (`third_party/clap/LICENSE`); `src/melodee_screen.h` is MIT.

@@ -92,15 +92,17 @@ inline v4 sinPi4 (v4 t)
 }
 
 // --- Half-band decimator ---------------------------------------------------------------------------------------
-// From twice the host's rate to its rate: a 47-tap Kaiser-windowed half-band FIR (Anvil's). Its even taps are zero but
-// the centre, so a frame costs 12 multiplies: flat to about 19 kHz at 48 kHz, about 80 dB down from 29 kHz.
+// From twice the host's rate to its rate: a 47-tap Kaiser-windowed half-band FIR (Anvil's design). Its even taps are zero
+// but the centre, so a frame is 12 symmetric pairs: the odd samples are kept twice, oldest first and newest first, so
+// both halves of each pair read forwards and the 12 pairs are three four-lane multiply-adds. Flat to about 19 kHz at
+// 48 kHz, about 80 dB down from 29 kHz.
 struct Decimator
 {
-    static constexpr int half = 12;
-    float coeff[half] {};
-    float odd[4 * half] {};
+    static constexpr int half = 12, len = 2 * half;
+    v4 coeff[half / 4] {};
+    float forward[2 * len] {}, backward[2 * len] {}; // each written twice, so a window reads straight
     float even[half] {};
-    int at = 0, evenAt = 0, quiet = 0;
+    int at = 0, back = 0, evenAt = 0, quiet = 0;
 
     void design()
     {
@@ -122,31 +124,39 @@ struct Decimator
             total += 2.0 * h[i];
         }
         for (int i = 0; i < half; ++i)
-            coeff[i] = (float) (h[i] * 0.5 / total);
+            coeff[i / 4][i % 4] = (float) (h[i] * 0.5 / total);
         clear();
     }
     void clear()
     {
-        std::memset (odd, 0, sizeof (odd));
+        std::memset (forward, 0, sizeof (forward));
+        std::memset (backward, 0, sizeof (backward));
         std::memset (even, 0, sizeof (even));
-        at = evenAt = 0;
+        at = back = evenAt = 0;
         quiet = 2 * half + 1; // starts silent
     }
     bool silent() const { return quiet >= 2 * half + 1; }
+    static v4 load (const float* p)
+    {
+        v4 v;
+        std::memcpy (&v, p, sizeof (v));
+        return v;
+    }
     float push (float a, float b)
     {
-        constexpr int len = 2 * half;
-        odd[at] = odd[at + len] = b;
+        // forward + at + 1: b[m-len+1] .. b[m]; backward + back: b[m], b[m-1], ...
+        forward[at] = forward[at + len] = b;
+        back = back == 0 ? len - 1 : back - 1;
+        backward[back] = backward[back + len] = b;
+        at = at + 1 == len ? 0 : at + 1;
         even[evenAt] = a;
         quiet = (a == 0.0f && b == 0.0f) ? std::min (quiet + 1, 2 * half + 1) : 0;
-        const float* w = odd + at + 1;
-        float s = 0.0f;
-        for (int i = 0; i < half; ++i)
-            s += coeff[i] * (w[half + i] + w[half - 1 - i]);
+        // sum over i of c[i] (b[m-half+1+i] + b[m-half-i]): the first from forward, the second from backward.
+        const float* f = forward + at + half;
+        const float* r = backward + back + half;
+        const v4 acc = coeff[0] * (load (f) + load (r)) + coeff[1] * (load (f + 4) + load (r + 4)) + coeff[2] * (load (f + 8) + load (r + 8));
         evenAt = evenAt + 1 == half ? 0 : evenAt + 1;
-        const float centre = even[evenAt];
-        at = at + 1 == len ? 0 : at + 1;
-        return s + 0.5f * centre;
+        return sum (acc) + 0.5f * even[evenAt];
     }
 };
 } // namespace mystik

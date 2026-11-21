@@ -12,7 +12,7 @@
 #include <strings.h>
 
 #ifndef MYSTIK_VERSION
-#define MYSTIK_VERSION "0.1.0"
+#define MYSTIK_VERSION "0.2.0"
 #endif
 
 namespace mystik
@@ -33,7 +33,8 @@ enum : uint32_t
     trig1 = pitch1 + steps,
     stroke1 = trig1 + steps,
     chance1 = stroke1 + steps,
-    count = chance1 + steps
+    human = chance1 + steps, // 0.2: added after the steps; ids never move
+    count
 };
 }
 
@@ -75,7 +76,7 @@ inline float bounceRatio (float k) { return 0.5f + 0.42f * k; }
 // Gate Mode's morph: 0 VCA, 0.5 Combo, 1 Lowpass.
 
 inline const char* const offOn[] = { "Off", "On" };
-inline const char* const bodyChoices[] = { "Tabla", "Conga", "Frame", "Udu", "Slit", "Handpan", "Bowl", "Bell" };
+inline const char* const bodyChoices[] = { "Tabla", "Conga", "Frame", "Udu", "Slit", "Handpan", "Bowl", "Bell", "Goblet" };
 inline const char* const ratioChoices[] = { "1/2", "1", "3/2", "2", "5/2", "3", "4", "5", "7",
                                             "1.414", "1.594", "2.136", "2.296", "2.653", "2.918", "3.156" };
 constexpr float ratioValues[] = { 0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 4.0f, 5.0f, 7.0f,
@@ -198,6 +199,7 @@ inline constexpr Param paramTable[] = {
     CONT (snap, "Snap", "Skin", 0.0f, 1.0f, 0.3f, percent),
     CONT (bend, "Bend", "Skin", -1.0f, 1.0f, 0.2f, bipolar),
     CONT (drift, "Drift", "Skin", 0.0f, 1.0f, 0.1f, percent),
+    CONT (human, "Human", "Skin", 0.0f, 1.0f, 0.3f, percent),
     CONT (fmIndex, "FM Index", "Osc", 0.0f, 1.0f, 0.2f, percent),
     CHOICE (fmRatio, "FM Ratio", "Osc", ratioChoices, 10.0f),
     CONT (feedback, "Feedback", "Osc", 0.0f, 1.0f, 0.0f, percent),

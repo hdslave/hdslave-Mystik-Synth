@@ -322,7 +322,8 @@ std::vector<std::pair<std::string, double>> clickPatch()
 {
     std::vector<std::pair<std::string, double>> v { { "Source", 1.0 }, { "Snap", 0.0 }, { "Ring", 0.0 }, { "Decay", 0.0 }, { "Bend", 0.0 },
                                                     { "Drift", 0.0 }, { "Bloom", 0.0 }, { "Timbre", 0.0 }, { "Echo", 0.0 }, { "Space", 0.0 },
-                                                    { "Memory", 0.0 }, { "Swing", 0.5 }, { "Density", 0.5 }, { "Position", 0.0 } };
+                                                    { "Memory", 0.0 }, { "Swing", 0.5 }, { "Density", 0.5 }, { "Position", 0.0 },
+                                                    { "Human", 0.0 } };
     for (int s = 1; s <= 16; ++s)
     {
         v.push_back ({ "Trig " + std::to_string (s), 1.0 });
@@ -360,7 +361,7 @@ void testParameters()
 {
     Instance a;
     const uint32_t n = a.params->count (a.plugin);
-    CHECK (n == 115);
+    CHECK (n == 116);
     std::vector<clap_id> seen;
     for (uint32_t i = 0; i < n; ++i)
     {

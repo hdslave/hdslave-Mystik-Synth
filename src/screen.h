@@ -202,7 +202,7 @@ private:
     // --- Lists ------------------------------------------------------------------------------------------------------
     struct List { const uint32_t* ids; int count; };
     static constexpr uint32_t skinIds[] = { ParamId::tune, ParamId::source, ParamId::body, ParamId::ring, ParamId::position,
-                                            ParamId::snap, ParamId::bend, ParamId::drift };
+                                            ParamId::snap, ParamId::bend, ParamId::drift, ParamId::human };
     static constexpr uint32_t oscIds[] = { ParamId::fmIndex, ParamId::fmRatio, ParamId::feedback, ParamId::timbre, ParamId::symmetry,
                                            ParamId::bloom };
     static constexpr uint32_t gateIds[] = { ParamId::gateMode, ParamId::resonance, ParamId::strike, ParamId::decay, ParamId::open,
@@ -571,7 +571,7 @@ private:
         char line[96];
         std::snprintf (line, sizeof (line), "%s from %s", scaleChoices[std::clamp (ival (ParamId::scale), 0, 11)], s);
         r.text (6, 42, line, ink::soft);
-        std::snprintf (line, sizeof (line), "SEED %04d   %s", ival (ParamId::seed), bodyChoices[std::clamp (ival (ParamId::body), 0, 7)]);
+        std::snprintf (line, sizeof (line), "SEED %04d   %s", ival (ParamId::seed), bodyChoices[std::clamp (ival (ParamId::body), 0, bodyCount - 1)]);
         r.text (6, 56, line, ink::muted);
     }
 
@@ -706,7 +706,7 @@ private:
         const Body& b = bodies[std::clamp (ival (ParamId::body), 0, bodyCount - 1)];
         const float place = val (ParamId::position);
         r.text (6, 7, "MODES", ink::muted);
-        r.right (122, 7, bodyChoices[std::clamp (ival (ParamId::body), 0, 7)], ink::paper);
+        r.right (122, 7, bodyChoices[std::clamp (ival (ParamId::body), 0, bodyCount - 1)], ink::paper);
         float total = 0.0f, amp[8];
         for (int i = 0; i < 8; ++i)
             amp[i] = b.centre[i] + (b.edge[i] - b.centre[i]) * place, total += amp[i];
@@ -714,14 +714,15 @@ private:
         r.box (6, 74, 116, 1, ink::rule);
         for (int i = 0; i < 8; ++i)
         {
-            const int x = 6 + (int) std::lround (std::log2 (b.ratio[i]) / std::log2 (14.0f) * 112.0f);
+            // From 0.4 (a body's air, under the head) to 14 times the fundamental, on a log scale.
+            const int x = 6 + (int) std::lround ((std::log2 (b.ratio[i]) - std::log2 (0.4f)) / std::log2 (14.0f / 0.4f) * 112.0f);
             const int h = (int) std::lround (amp[i] / std::max (top, 1e-3f) * 48.0f);
             const Ink c = mix (ink::ember, ink::hot, (int) (b.decay[i] * 255.0f));
             r.box (x, 74 - h, 3, h, c);
         }
         (void) total;
         char s[32];
-        std::snprintf (s, sizeof (s), "1  %.2f  %.2f", b.ratio[1], b.ratio[2]);
+        std::snprintf (s, sizeof (s), "%.2f %.2f %.2f", b.ratio[0], b.ratio[1], b.ratio[2]);
         r.text (6, 78, s, ink::parked);
         // The head, and the strike.
         constexpr int hx = 40, hy = 112, hr = 20;

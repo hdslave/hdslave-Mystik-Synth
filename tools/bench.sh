@@ -13,9 +13,12 @@ docker --context "$CONTEXT" run --rm --platform linux/arm64 -v "$PWD:/work" -w /
         build/bench \$mode $SECONDS_RUN
         blocks=\$(awk -v s=$SECONDS_RUN 'BEGIN { printf \"%d\", s * 48000 / 128 }')
         if [ \$mode = paint ]; then
-            # Only Screen::paint and what it calls: a frame every 15 blocks.
-            refs=\$(valgrind --tool=callgrind --collect-atstart=no --toggle-collect='*Screen::paint*' --callgrind-out-file=build/callgrind.paint build/bench paint $SECONDS_RUN 2>&1 | grep -o 'refs: *[0-9,]*' | tr -d 'refs: ,')
-            awk -v r=\$refs -v n=\$blocks 'BEGIN { frames = int ((n + 14) / 15); printf \"%-8s %9.0f instructions a painted frame (PLAY page, sounding, 25 frames a second)\\n\", \"paint\", r / frames }'
+            # The page's own cost: a paint run less a typical run of the same length (and the paint run's 40 warm-up
+            # blocks at the typical rate), over its 100 frames. (callgrind's --toggle-collect misses the inlined paint.)
+            p=\$(valgrind --tool=callgrind --callgrind-out-file=/dev/null build/bench paint $SECONDS_RUN 2>&1 | grep -o 'refs: *[0-9,]*' | tr -d 'refs: ,')
+            t=\$(valgrind --tool=callgrind --callgrind-out-file=/dev/null build/bench typical $SECONDS_RUN 2>&1 | grep -o 'refs: *[0-9,]*' | tr -d 'refs: ,')
+            w=\$(valgrind --tool=callgrind --callgrind-out-file=/dev/null build/bench typical 0 2>&1 | grep -o 'refs: *[0-9,]*' | tr -d 'refs: ,')
+            awk -v p=\$p -v t=\$t -v w=\$w -v n=\$blocks 'BEGIN { frames = int ((n + 14) / 15); printf \"%-8s %9.0f instructions a painted frame (PLAY page, sounding, 25 frames a second)\\n\", \"paint\", (p - t - 40 * (t - w) / n) / frames }'
             continue
         fi
         refs=\$(valgrind --tool=callgrind --callgrind-out-file=build/callgrind.\$mode build/bench \$mode $SECONDS_RUN 2>&1 | grep -o 'refs: *[0-9,]*' | tr -d 'refs: ,')

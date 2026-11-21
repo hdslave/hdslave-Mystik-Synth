@@ -27,15 +27,22 @@ strike ──► hand exciter (raised-cosine click + noise burst) ──► memb
   only): Tabla (harmonic, a loaded membrane), Conga (ideal membrane, Bessel ratios), Frame (Bessel, bright and long),
   Udu (clay pot: a strong low mode whose pitch rises after the strike), Slit (wooden log: free bar ratios
   1, 2.756, 5.404, 8.933), Handpan (steel: 1, 2, 3 plus shell modes), Bowl (singing bowl doublets that beat), Bell
-  (agogo-like). Position moves the strike from the centre (round modes) to the edge (the rest). Ring sets the
-  fundamental's decay; higher modes decay faster by the body's table.
-- Hand exciter: a raised-cosine pulse (narrower for harder strokes, so it reaches higher modes) and a decaying noise
-  burst; Snap sends the burst straight into the gate too (the slap's crack).
-- Strokes (per step, and from keys in Strokes mode): Open, Slap (edge, bright, short), Bass (centre, soft, long, a
-  deeper bend), Mute (damped modes and gate), Ghost (soft), Flam (a grace hit 22 ms before), Roll (four hits that
-  speed up and fade), Press (the head pressed after the hit: the pitch rises, a tabla's bayan).
-- Pitch: Tune + the step + MIDI transposition + Glide (slides) + Bend (tension: the pitch starts higher and falls,
-  deeper for harder hits; negative rises, as an udu) + Drift (a smoothed random walk: the "woggle").
+  (agogo-like), Goblet (0.2: a doumbek or djembe, the goblet's Helmholtz air at 0.42 under the head; the conga has
+  its open shell's air at 0.47 too). Position moves the strike from the centre (round modes) to the edge (the rest).
+  Ring sets the fundamental's decay; higher modes decay faster by the body's table.
+- Hand exciter: a raised-cosine pulse of area `force`, its width the stroke's times `1.4 - 0.6 force` (a harder hand
+  is shorter, so it reaches higher modes), and a decaying noise burst (force^1.5): broadband into the skin, and through
+  a band-pass at the stroke's crack frequency (450 Hz for a bass, 1.6 kHz open, 2.8 kHz slap; Q 1.3) straight into the
+  gate by Snap. A hand landing on a head that still rings damps it first by `contact * (0.4 + 0.6 force)` (a mute
+  most, a ghost least): flams and rolls keep their main hits. Human (0.2) varies each hit a little (force, place,
+  contact, bend, every mode's tuning), by a hash of the hit count.
+- Strokes (per step, and from keys in Strokes mode): Open, Slap (edge, bright, short, its fundamental damped by the
+  fingers left on), Bass (centre, soft, long, a deeper bend, its upper modes damped by the palm), Mute (damped modes
+  and gate), Ghost (soft), Flam (a grace hit, the main one 22 ms after), Roll (four hits that speed up and fade),
+  Press (the head pressed after the hit: the pitch rises, a tabla's bayan).
+- Pitch: Tune + the step + MIDI transposition + Glide (slides) + Bend (tension: the pitch starts higher and falls as
+  the swing does, its time the fundamental's T60 / 13.8 (amplitude squared); deeper for harder hits; negative rises,
+  as an udu) + Drift (a smoothed random walk: the "woggle").
 - Wavefolder: `sin(g * x + b) - sin(b)`, g = 1 + 11 * clamp(Timbre + Bloom * light)^2, b = Symmetry * pi/2. It folds
   the oscillator and the membrane alike.
 
@@ -106,7 +113,7 @@ number, Seed and a salt: the same place in the song plays the same way. Regenera
 - Drive: `tanh(x * (1 + 7 d^2))` made up.
 - Crush: sample-and-hold rate (to about 1.5 kHz) and bits (to 3) from one knob.
 - Echo: ping-pong, Echo Time synced to the tempo, Repeats up to 1.05 with Absorb (a low-pass) and a soft clip in
-  the loop.
+  the loop (exactly linear below 0.75, so repeats are not squeezed).
 - Space: a spring-ish tank: per side a feedback delay through a chain of stretched allpasses (dispersion: the
   chirp), Space Decay sets the feedback.
 
@@ -143,6 +150,7 @@ number, Seed and a salt: the same place in the song plays the same way. Regenera
 | | | | 67-82 | Trig 1-16 |
 | | | | 83-98 | Stroke 1-16 |
 | | | | 99-114 | Chance 1-16 |
+| | | | 115 | Human (0.2) |
 
 ## Screen page
 

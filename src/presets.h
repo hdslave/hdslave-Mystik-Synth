@@ -25,7 +25,7 @@ struct Preset
 namespace presetValues
 {
 using namespace ParamId;
-// Choices by their place: Body Tabla 0 Conga 1 Frame 2 Udu 3 Slit 4 Handpan 5 Bowl 6 Bell 7; FM Ratio 1 is "1", 10 is
+// Choices by their place: Body Tabla 0 Conga 1 Frame 2 Udu 3 Slit 4 Handpan 5 Bowl 6 Bell 7 Goblet 8; FM Ratio 1 is "1", 10 is
 // 1.594, 14 is 2.918; Seq Mode Pattern 0 Euclid 1 Turing 2 Automaton 3 Bounce 4 Rhythm 5; Rate 1/4 1, 1/8 3, 1/8T 4,
 // 1/16 5; Direction Brownian 3 Random 4; Scale Minor 2 Phrygian 4 Hijaz 5 Bhairav 6 Pent Major 8 Hirajoshi 9 Pelog 10
 // Slendro 11; Rhythm Bell 12/8 5 Tumbao 6 Maqsum 7 Teental 11; Echo Time 1/16T 1, 1/16D 4, 1/4T 6, 1/8D 7, 1/4D 10;
@@ -39,7 +39,7 @@ constexpr PresetValue westBongo[] = {
     { echo, 0.2f }, { space, 0.15f },
     { pitch1 + 0, 0 }, { pitch1 + 1, 2 }, { pitch1 + 2, 4 }, { pitch1 + 3, 1 }, { pitch1 + 4, 3 }, { pitch1 + 5, 0 }, { pitch1 + 6, 5 },
     { pitch1 + 7, 2 }, { pitch1 + 8, 0 }, { pitch1 + 9, 4 }, { pitch1 + 10, 1 }, { pitch1 + 11, 3 }, { pitch1 + 12, 5 }, { pitch1 + 13, 2 },
-    { pitch1 + 14, 4 }, { pitch1 + 15, 6 },
+    { pitch1 + 14, 4 }, { pitch1 + 15, 6 }, { volume, 0.53f },
 };
 
 // A tabla theka: the rhythm's strokes, the bayan's low dha an octave under (its steps' Pitch at -7 in Bhairav).
@@ -49,20 +49,20 @@ constexpr PresetValue tablaTeental[] = {
     { accents, 0.4f }, { echo, 0.0f }, { space, 0.12f },
     { pitch1 + 0, -7 }, { pitch1 + 3, -7 }, { pitch1 + 4, -7 }, { pitch1 + 7, -7 }, { pitch1 + 8, -7 }, { pitch1 + 15, -7 },
     { pitch1 + 1, 0 }, { pitch1 + 2, 0 }, { pitch1 + 5, 0 }, { pitch1 + 6, 0 }, { pitch1 + 9, 1 }, { pitch1 + 10, 1 },
-    { pitch1 + 11, 2 }, { pitch1 + 12, 2 }, { pitch1 + 13, 0 }, { pitch1 + 14, 0 },
+    { pitch1 + 11, 2 }, { pitch1 + 12, 2 }, { pitch1 + 13, 0 }, { pitch1 + 14, 0 }, { volume, 0.80f },
 };
 
 constexpr PresetValue congaTumbao[] = {
     { body, 1.0f }, { tune, 12.0f }, { source, 0.7f }, { position, 0.35f }, { decay, 0.28f }, { seqMode, 5.0f }, { rhythm, 6.0f }, { rate, 3.0f },
     { swing, 0.56f }, { accents, 0.3f }, { scale, 2.0f }, { space, 0.2f }, { echo, 0.08f },
-    { pitch1 + 2, 0 }, { pitch1 + 6, 0 }, { pitch1 + 7, 2 },
+    { pitch1 + 2, 0 }, { pitch1 + 6, 0 }, { pitch1 + 7, 2 }, { volume, 0.75f },
 };
 
 // The pot's air rises after each strike (Udu bends up), walking a Hirajoshi scale.
 constexpr PresetValue uduBloom[] = {
     { body, 3.0f }, { tune, -2.0f }, { source, 0.9f }, { ring, 0.6f }, { bend, 0.5f }, { decay, 0.55f }, { memory, 0.6f },
     { bloom, 0.2f }, { seqMode, 0.0f }, { direction, 3.0f }, { density, 0.55f }, { scale, 9.0f }, { space, 0.35f },
-    { spaceDecay, 0.65f }, { echo, 0.1f },
+    { spaceDecay, 0.65f }, { echo, 0.1f }, { volume, 0.71f },
 };
 
 // A 303-ish line through the gate's Lowpass mode: a folded oscillator, resonance near ringing, held notes and slides.
@@ -80,7 +80,7 @@ constexpr PresetValue acidLine[] = {
     { stroke1 + 0, 0 }, { stroke1 + 1, 3 }, { stroke1 + 2, 0 }, { stroke1 + 3, 3 }, { stroke1 + 4, 0 }, { stroke1 + 5, 0 },
     { stroke1 + 6, 0 }, { stroke1 + 7, 0 }, { stroke1 + 8, 3 }, { stroke1 + 9, 0 }, { stroke1 + 10, 0 }, { stroke1 + 11, 6 },
     { stroke1 + 12, 0 }, { stroke1 + 13, 3 }, { stroke1 + 14, 0 }, { stroke1 + 15, 0 },
-    { chance1 + 6, 1 }, { chance1 + 13, 1 },
+    { chance1 + 6, 1 }, { chance1 + 13, 1 }, { volume, 0.57f },
 };
 
 constexpr PresetValue turingAcid[] = {
@@ -89,14 +89,14 @@ constexpr PresetValue turingAcid[] = {
     { accent, 0.8f }, { glide, 0.3f }, { bend, 0.0f }, { seqMode, 2.0f }, { length, 12.0f }, { mutate, 0.15f }, { density, 0.7f },
     { range, 0.35f }, { accents, 0.45f }, { scale, 4.0f }, { gate, 0.6f }, { drive, 0.3f }, { echo, 0.25f }, { echoTime, 4.0f },
     { stroke1 + 0, 0 }, { stroke1 + 1, 0 }, { stroke1 + 2, 0 }, { stroke1 + 3, 0 }, { stroke1 + 4, 0 }, { stroke1 + 5, 0 },
-    { stroke1 + 6, 0 }, { stroke1 + 7, 0 }, { stroke1 + 8, 0 }, { stroke1 + 9, 0 }, { stroke1 + 10, 0 }, { stroke1 + 11, 0 },
+    { stroke1 + 6, 0 }, { stroke1 + 7, 0 }, { stroke1 + 8, 0 }, { stroke1 + 9, 0 }, { stroke1 + 10, 0 }, { stroke1 + 11, 0 }, { volume, 0.57f },
 };
 
 constexpr PresetValue singingBowl[] = {
     { body, 6.0f }, { source, 1.0f }, { ring, 0.95f }, { position, 0.5f }, { snap, 0.05f }, { bend, 0.0f }, { open, 0.8f },
     { decay, 0.8f }, { bloom, 0.0f }, { fmIndex, 0.0f }, { timbre, 0.0f }, { seqMode, 3.0f }, { rate, 1.0f }, { length, 8.0f },
     { rule, 90.0f }, { density, 0.3f }, { scale, 10.0f }, { space, 0.5f }, { spaceDecay, 0.8f }, { echo, 0.15f }, { echoTime, 10.0f },
-    { volume, 0.6f },
+    { volume, 0.59f },
 };
 
 constexpr PresetValue slitEuclid[] = {
@@ -104,7 +104,7 @@ constexpr PresetValue slitEuclid[] = {
     { rotate, 2.0f }, { accents, 0.4f }, { scale, 11.0f }, { echo, 0.3f }, { repeats, 0.55f }, { absorb, 0.6f },
     { pitch1 + 0, 0 }, { pitch1 + 1, 3 }, { pitch1 + 2, 1 }, { pitch1 + 3, 4 }, { pitch1 + 4, 2 }, { pitch1 + 5, 5 }, { pitch1 + 6, 0 },
     { pitch1 + 7, 3 }, { pitch1 + 8, -1 }, { pitch1 + 9, 2 }, { pitch1 + 10, 4 }, { pitch1 + 11, 1 }, { pitch1 + 12, 5 }, { pitch1 + 13, 3 },
-    { pitch1 + 14, 0 }, { pitch1 + 15, 2 },
+    { pitch1 + 14, 0 }, { pitch1 + 15, 2 }, { volume, 0.79f },
 };
 
 constexpr PresetValue handpanDrift[] = {
@@ -112,14 +112,14 @@ constexpr PresetValue handpanDrift[] = {
     { mutate, 0.4f }, { scale, 8.0f }, { rate, 3.0f }, { space, 0.4f }, { echo, 0.2f }, { echoTime, 6.0f },
     { pitch1 + 0, 0 }, { pitch1 + 1, 2 }, { pitch1 + 2, 4 }, { pitch1 + 3, 5 }, { pitch1 + 4, 7 }, { pitch1 + 5, 9 }, { pitch1 + 6, 4 },
     { pitch1 + 7, 2 }, { pitch1 + 8, 0 }, { pitch1 + 9, 5 }, { pitch1 + 10, 3 }, { pitch1 + 11, 7 }, { pitch1 + 12, 1 }, { pitch1 + 13, 4 },
-    { pitch1 + 14, 6 }, { pitch1 + 15, 2 },
+    { pitch1 + 14, 6 }, { pitch1 + 15, 2 }, { volume, 0.65f },
 };
 
-// A doumbek's maqsum: dum (Bass) and tek (Slap, a fifth up), ghost fills from Mutate, in Hijaz.
+// A doumbek's maqsum: dum (Bass, the goblet's air booming) and tek (Slap, a fifth up), ghost fills from Mutate, in Hijaz.
 constexpr PresetValue maqsumNight[] = {
-    { body, 2.0f }, { tune, 9.0f }, { source, 0.75f }, { snap, 0.4f }, { ring, 0.35f }, { seqMode, 5.0f }, { rhythm, 7.0f },
+    { body, 8.0f }, { tune, 9.0f }, { source, 0.75f }, { snap, 0.4f }, { ring, 0.35f }, { seqMode, 5.0f }, { rhythm, 7.0f },
     { rate, 3.0f }, { scale, 5.0f }, { accents, 0.5f }, { mutate, 0.2f }, { space, 0.25f },
-    { pitch1 + 0, 0 }, { pitch1 + 1, 4 }, { pitch1 + 3, 4 }, { pitch1 + 4, 0 }, { pitch1 + 6, 4 },
+    { pitch1 + 0, 0 }, { pitch1 + 1, 4 }, { pitch1 + 3, 4 }, { pitch1 + 4, 0 }, { pitch1 + 6, 4 }, { volume, 0.74f },
 };
 
 constexpr PresetValue feedbackWitch[] = {
@@ -129,7 +129,7 @@ constexpr PresetValue feedbackWitch[] = {
     { echo, 0.3f }, { echoTime, 1.0f }, { repeats, 0.65f },
     { pitch1 + 0, 0 }, { pitch1 + 1, 6 }, { pitch1 + 2, -5 }, { pitch1 + 3, 11 }, { pitch1 + 4, 1 }, { pitch1 + 5, -8 }, { pitch1 + 6, 3 },
     { pitch1 + 7, 13 }, { pitch1 + 8, -2 }, { pitch1 + 9, 7 }, { pitch1 + 10, -11 }, { pitch1 + 11, 4 }, { pitch1 + 12, 9 },
-    { pitch1 + 13, -6 }, { pitch1 + 14, 2 }, { pitch1 + 15, 15 },
+    { pitch1 + 13, -6 }, { pitch1 + 14, 2 }, { pitch1 + 15, 15 }, { volume, 0.48f },
 };
 
 constexpr PresetValue bouncingBall[] = {
@@ -137,14 +137,14 @@ constexpr PresetValue bouncingBall[] = {
     { curve, 0.7f }, { scale, 8.0f }, { space, 0.3f }, { echo, 0.1f },
     { pitch1 + 0, 9 }, { pitch1 + 1, 8 }, { pitch1 + 2, 7 }, { pitch1 + 3, 6 }, { pitch1 + 4, 5 }, { pitch1 + 5, 4 }, { pitch1 + 6, 3 },
     { pitch1 + 7, 2 }, { pitch1 + 8, 1 }, { pitch1 + 9, 0 }, { pitch1 + 10, -1 }, { pitch1 + 11, -2 }, { pitch1 + 12, -3 },
-    { pitch1 + 13, -4 }, { pitch1 + 14, -5 }, { pitch1 + 15, -6 },
+    { pitch1 + 13, -4 }, { pitch1 + 14, -5 }, { pitch1 + 15, -6 }, { volume, 0.89f },
 };
 
 // The standard bell pattern on a two-tone iron bell, twelve triplet eighths to the bar.
 constexpr PresetValue gankoguiBell[] = {
     { body, 7.0f }, { tune, 19.0f }, { source, 0.95f }, { ring, 0.3f }, { position, 0.7f }, { seqMode, 5.0f }, { rhythm, 5.0f },
     { rate, 4.0f }, { scale, 2.0f }, { space, 0.2f },
-    { pitch1 + 0, 0 }, { pitch1 + 2, 3 }, { pitch1 + 4, 0 }, { pitch1 + 5, 3 }, { pitch1 + 7, 0 }, { pitch1 + 9, 3 }, { pitch1 + 11, 0 },
+    { pitch1 + 0, 0 }, { pitch1 + 2, 3 }, { pitch1 + 4, 0 }, { pitch1 + 5, 3 }, { pitch1 + 7, 0 }, { pitch1 + 9, 3 }, { pitch1 + 11, 0 }, { volume, 0.75f },
 };
 } // namespace presetValues
 

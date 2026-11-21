@@ -96,7 +96,7 @@ public:
         if (id >= ParamId::count || knob[id] == v)
             return;
         knob[id] = v;
-        if (id <= ParamId::glide)
+        if (id <= ParamId::glide || id == ParamId::human)
             voiceDirty = true;
         else if (id <= ParamId::volume)
             fxDirty = true;
@@ -137,6 +137,14 @@ public:
             transpose = (float) (key - 60);
             return;
         }
+        // The same key again without a note off between (a sequencer's repeated note): it starts again, not a slide.
+        for (int i = 0; i < held; ++i)
+            if (heldKeys[i] == key)
+            {
+                for (int j = i; j + 1 < held; ++j)
+                    heldKeys[j] = heldKeys[j + 1];
+                --held, --i;
+            }
         const int mode = (int) knob[ParamId::notes];
         Hit h;
         h.force = velocity;
@@ -312,7 +320,7 @@ private:
             k.symmetry = knob[ParamId::symmetry], k.bloom = knob[ParamId::bloom], k.gateMode = knob[ParamId::gateMode];
             k.resonance = knob[ParamId::resonance], k.strike = knob[ParamId::strike], k.decay = knob[ParamId::decay];
             k.open = knob[ParamId::open], k.hold = knob[ParamId::hold], k.memory = knob[ParamId::memory];
-            k.accent = knob[ParamId::accent], k.glide = knob[ParamId::glide];
+            k.accent = knob[ParamId::accent], k.glide = knob[ParamId::glide], k.human = knob[ParamId::human];
             voice.set (k);
             voiceDirty = false;
         }

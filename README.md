@@ -13,19 +13,20 @@ needs [hdslaveOS](https://github.com/hdslave/hdslaveOS) (other hosts show the pa
   rises in about 12 ms and falls in about 250 ms (slower as it darkens), the circuit's own transfer function for VCA,
   Combo and Lowpass and everything between, its resonance. A strike lights it; brightness and loudness fall together,
   as a struck object's do.
-- **The drum** is a membrane (eight modes as rotations, so bends and slides stay clean) of eight bodies (tabla, conga,
-  frame drum, udu, slit log drum, handpan, singing bowl, iron bell) struck by a hand: a soft or hard contact, a noise
-  burst, eight strokes (open, slap, bass, mute, ghost, flam, roll, press), a pitch bend that follows the hit (a
-  talking drum's), all mixed with a complex oscillator (phase modulation by a second sine, feedback from the gate,
-  a wavefolder) that the gate's light can open further (Bloom).
+- **The drum** is a membrane (eight modes as rotations, so bends and slides stay clean) of nine bodies (tabla, conga,
+  frame drum, udu, slit log drum, handpan, singing bowl, iron bell, goblet) struck by a hand: a contact that is shorter
+  and brighter the harder it lands, a noise burst whose crack has its own band (a slap pops), a palm that damps what
+  still rings, eight strokes (open, slap, bass, mute, ghost, flam, roll, press), a pitch bend that falls as the head's
+  swing does (a talking drum's), no two hits quite alike (Human), all mixed with a complex oscillator (phase
+  modulation by a second sine, feedback from the gate, a wavefolder) that the gate's light can open further (Bloom).
 - **The sequencer** can be off; on, it plays 16 steps (pitch as a scale degree, trig, stroke, chance) as Pattern,
   Euclid, Turing, Automaton, Bounce or Rhythm (14 traditional timelines from tresillo to teental), with slides,
   303-style accents that build on each other, swing, density, rotation, mutation, twelve scales (Pelog and Slendro
   microtonal), a seed and Regenerate.
 - **The effects**: Drive, Crush, a ping-pong Echo synced to the tempo with Absorb in its loop, Space (a spring-like
   tank of dispersive allpasses).
-- **Cost**: about 89,000 instructions a 128-frame block playing (1.9 % of one of the MPC's cores), 1,900 stopped;
-  a page frame about 380,000 instructions (0.2 ms), redrawing only what moved.
+- **Cost**: about 88,000 instructions a 128-frame block playing (1.8 % of one of the MPC's cores), 1,900 stopped;
+  a page frame about 375,000 instructions (0.2 ms), redrawing only what moved.
 
 Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
 
@@ -66,12 +67,13 @@ Ids are fixed forever (a project keeps values by id); see `docs/design.md` for t
 |---|---|---|
 | Tune | C-1 to C5 (default A2) | the drum's pitch; the sequencer's scale counts from it |
 | Source | 0-100 % | the oscillator (0) to the membrane (100) |
-| Body | Tabla, Conga, Frame, Udu, Slit, Handpan, Bowl, Bell | the membrane's modes: ratios, how the strike's place weighs them, their decays |
+| Body | Tabla, Conga, Frame, Udu, Slit, Handpan, Bowl, Bell, Goblet | the membrane's modes: ratios, how the strike's place weighs them, their decays (Conga and Goblet have their shell's air under the head: a palm at the centre booms) |
 | Ring | 30 ms - 4 s | the membrane's fundamental falls 60 dB in this (higher modes sooner, by the body) |
 | Position | centre to edge | where the hand lands: the centre rings the round modes, the edge the rest |
 | Snap | 0-100 % | the hand's noise: through the skin and straight into the gate (a slap's crack) |
 | Bend | -100 to +100 % | the hit raises the pitch, which falls back (negative: rises after, an udu's bloop); harder hits more |
 | Drift | 0-100 % | a slow random wander of the pitch (up to 0.6 semitone) |
+| Human | 0-100 % | no two hits alike: at 100 % each hit's force +-8 %, place +-0.08, contact +-20 %, bend +-25 % and each mode's tuning +-0.4 % (the same for the same hit) |
 
 **Osc**
 
@@ -146,7 +148,9 @@ The modes:
 
 Mystik (a conga line in Hijaz), West Bongo (the oscillator alone, pinged), Tabla Teental, Conga Tumbao, Udu Bloom,
 Acid Gate (a 303-ish line through the Lowpass mode), Turing Acid, Singing Bowl, Slit Euclid (Slendro), Handpan Drift,
-Maqsum Night, Feedback Witch, Bouncing Ball, Gankogui Bell (the standard bell pattern).
+Maqsum Night (a doumbek: the Goblet body), Feedback Witch, Bouncing Ball, Gankogui Bell (the standard bell pattern).
+Their Volumes are set so they play about equally loud (K-weighted, the 90th percentile of 400 ms loudness), except
+where a sparse, peaky pattern would have to clip to get there: those peak at about -2 dBFS instead.
 
 ## Sources, and what is inferred
 
@@ -163,8 +167,10 @@ Maqsum Night, Feedback Witch, Bouncing Ball, Gankogui Bell (the standard bell pa
 - Inferred (chosen by ear and measurement, not from a source): how far a strike lights the vactrol (0.4 of full at
   full force), the "faster when bright" curve (`0.4 + 0.6 (1 - x)^2` of the fall), Memory's history (0.5 s, up to x6),
   the accent capacitor (half of what it lacks, 300 ms), Hold's level, the velocity level into the gate, the body tables
-  past the first ratios (amplitudes, decays, the udu, handpan, bowl and bell modes), the strokes' shapes, the bend's
-  times, Resonance bringing in the Lowpass mode's capacitor in the other modes, the timelines' strokes on one drum.
+  past the first ratios (amplitudes, decays, the udu, handpan, bowl and bell modes, the conga's and goblet's air modes
+  at 0.47 and 0.42), the strokes' shapes (contact lengths, the crack's bands from 450 Hz for a bass to 2.8 kHz for a
+  slap, how much each damps the head and its fundamental), the bend falling at twice the fundamental's rate, Human's
+  ranges, Resonance bringing in the Lowpass mode's capacitor in the other modes, the timelines' strokes on one drum.
 
 ## Building and testing
 
@@ -175,7 +181,7 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
     tools/bench.sh           # instructions a block (callgrind): worst, acid, typical, stopped, a page frame
     ./build.sh fingerprint-update   # only after a change meant to change the sound
 
-- `tests/host.cpp` (305,352 checks): the description, every parameter's text both ways, state, presets, the gate held
+- `tests/host.cpp` (305,362 checks): the description, every parameter's text both ways, state, presets, the gate held
   to the 292's response at seven settings, the vactrol's timing, steps to the sample (swing too), every sequencer mode,
   stop and Play again, a loop the host tells a block late, the same output in blocks of 1, 37, 128 and 4096 frames,
   keys and MIDI, Regenerate, extreme settings at 44.1, 48 and 96 kHz, and the page (its pictures in `build/`).
@@ -185,8 +191,9 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
   pages in Melodee's screen, the K1-K3 bindings), with the hdslaveOS checkout mounted read-only.
 
 Cost (callgrind, 128-frame blocks at 48 kHz; about 4.8 million cycles a block on the MPC's 1.8 GHz A55): worst
-92,500, acid 91,200, typical 88,700, stopped 1,900 instructions a block; a page frame while it plays about 380,000.
-The voice runs at twice the rate (a 47-tap half-band filter brings it down), the membrane is two four-lane vectors,
+94,200, acid 86,200, typical 88,400, stopped 1,900 instructions a block; a page frame while it plays about 375,000.
+The voice runs at twice the rate (a 47-tap half-band filter brings it down, its 12 symmetric pairs as three NEON
+multiply-adds), the membrane is two four-lane vectors, the spring's two sides one two-lane vector,
 the slow parts (pitch, the membrane's angles, the vactrol's time constants, the gate's coefficients) are worked out
 every 8 inner samples and only when they moved, and a silent drum and silent effects cost nothing.
 

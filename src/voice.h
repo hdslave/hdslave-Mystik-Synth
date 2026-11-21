@@ -25,10 +25,11 @@ inline constexpr Body bodies[] = {
     // Tabla: a loaded membrane, its first modes nearly harmonic (Raman); the centre is "tun", the rim "na".
     { { 1, 2, 3, 4, 5, 6.02f, 7.1f, 8.25f }, { 1, .45f, .2f, .1f, .05f, .03f, .02f, .01f },
       { .35f, .8f, .7f, .55f, .4f, .3f, .25f, .2f }, { 1, .85f, .7f, .55f, .42f, .32f, .25f, .2f }, 1.0f },
-    // Conga: an ideal membrane, the Bessel zeros (0,1) (1,1) (2,1) (0,2) (3,1) (1,2) (4,1) (2,2); only the round modes
-    // move at the centre. The shell damps the upper modes.
-    { { 1, 1.594f, 2.136f, 2.296f, 2.653f, 2.918f, 3.156f, 3.501f }, { 1, .05f, .03f, .35f, .02f, .05f, .01f, .02f },
-      { .5f, .8f, .7f, .3f, .6f, .5f, .45f, .35f }, { 1, .6f, .45f, .5f, .35f, .3f, .25f, .22f }, 1.0f },
+    // Conga: an ideal membrane, the Bessel zeros (0,1) (1,1) (2,1) (0,2) (3,1) (1,2) (4,1), only the round modes moving
+    // at the centre, and the open shell's air column under it (0.47: a palm at the centre booms). The shell damps the
+    // upper modes.
+    { { 1, 1.594f, 2.136f, 2.296f, 2.653f, 2.918f, 3.156f, 0.47f }, { 1, .05f, .03f, .35f, .02f, .05f, .01f, .45f },
+      { .5f, .8f, .7f, .3f, .6f, .5f, .45f, .04f }, { 1, .6f, .45f, .5f, .35f, .3f, .25f, 1.3f }, 1.0f },
     // Frame: the same membrane, thin and open: bright and long.
     { { 1, 1.594f, 2.136f, 2.296f, 2.653f, 2.918f, 3.156f, 3.501f }, { 1, .1f, .05f, .4f, .05f, .1f, .05f, .08f },
       { .4f, .9f, .8f, .4f, .75f, .6f, .6f, .5f }, { 1, .9f, .8f, .85f, .7f, .65f, .6f, .55f }, 0.8f },
@@ -47,6 +48,10 @@ inline constexpr Body bodies[] = {
     // Bell: an iron agogo or gankogui, inharmonic and bright.
     { { 1, 1.84f, 2.94f, 4.26f, 5.62f, 7.1f, 8.6f, 10.2f }, { 1, .7f, .5f, .4f, .3f, .2f, .15f, .1f },
       { .7f, .8f, .7f, .6f, .5f, .4f, .3f, .2f }, { 1, .8f, .6f, .5f, .4f, .35f, .3f, .25f }, 0.1f },
+    // Goblet (0.2): a doumbek or djembe, a membrane over a goblet's air (0.42, its Helmholtz boom): the centre's
+    // dum is mostly air and fundamental, the rim's tek the upper modes.
+    { { 0.42f, 1, 1.594f, 2.136f, 2.296f, 2.653f, 2.918f, 3.156f }, { .9f, 1, .05f, .03f, .35f, .02f, .05f, .01f },
+      { .06f, .45f, .85f, .75f, .3f, .65f, .55f, .5f }, { 1.6f, 1, .5f, .4f, .45f, .3f, .28f, .25f }, 1.2f },
 };
 constexpr int bodyCount = (int) (sizeof (bodies) / sizeof (bodies[0]));
 static_assert (bodyCount == (int) (sizeof (bodyChoices) / sizeof (bodyChoices[0])), "a body a name");
@@ -56,17 +61,20 @@ static_assert (bodyCount == (int) (sizeof (bodyChoices) / sizeof (bodyChoices[0]
 // much it bends the pitch.
 struct StrokeShape
 {
-    float force, widthMs, place, placeShare, burst, burstMs, bright, modeDamp, gateDamp, bend;
+    float force, widthMs, place, placeShare; // how hard, the contact's length at full force, where (a share toward `place`)
+    float burst, burstMs, noiseHz, bright;   // the hand's noise: level, decay, its crack's band, its colour into the skin
+    float modeDamp, fundDamp;                // the membrane's decays this stroke (all modes; the fundamental again)
+    float gateDamp, bend, contact;           // the gate's fall, the pitch bend, how much the hand damps what still rings
 };
 inline constexpr StrokeShape strokeShapes[Stroke::count] = {
-    { 1.00f, 1.0f, 0.0f, 0.0f, 0.25f, 1.5f, 0.6f, 1.0f, 1.0f, 1.0f },    // Open
-    { 1.00f, 0.3f, 0.92f, 0.8f, 1.0f, 2.5f, 1.0f, 0.45f, 0.55f, 0.5f },  // Slap
-    { 1.00f, 3.0f, 0.05f, 0.8f, 0.05f, 0.8f, 0.2f, 1.3f, 1.25f, 1.5f },  // Bass
-    { 0.90f, 1.2f, 0.0f, 0.0f, 0.3f, 1.0f, 0.5f, 0.12f, 0.3f, 0.6f },    // Mute
-    { 0.35f, 1.6f, 0.0f, 0.0f, 0.1f, 1.0f, 0.4f, 0.8f, 0.8f, 0.5f },     // Ghost
-    { 1.00f, 1.0f, 0.0f, 0.0f, 0.25f, 1.5f, 0.6f, 1.0f, 1.0f, 1.0f },    // Flam (two hits: the engine plays the grace)
-    { 1.00f, 1.0f, 0.0f, 0.0f, 0.25f, 1.5f, 0.6f, 1.0f, 1.0f, 1.0f },    // Roll (the engine plays four)
-    { 1.00f, 1.2f, 0.0f, 0.0f, 0.2f, 1.2f, 0.5f, 1.0f, 1.0f, 1.0f },     // Press
+    { 1.00f, 1.0f, 0.0f, 0.0f, 0.35f, 3.0f, 1600.0f, 0.6f, 1.0f, 1.0f, 1.0f, 1.0f, 0.45f },    // Open
+    { 1.00f, 0.3f, 0.92f, 0.8f, 1.0f, 7.0f, 2800.0f, 1.0f, 0.5f, 0.25f, 0.55f, 0.5f, 0.75f },   // Slap: fingers stay on
+    { 1.00f, 3.0f, 0.05f, 0.8f, 0.08f, 1.5f, 450.0f, 0.2f, 0.8f, 1.6f, 1.25f, 1.5f, 0.6f },     // Bass: the palm's boom
+    { 0.90f, 1.2f, 0.0f, 0.0f, 0.4f, 2.0f, 1200.0f, 0.5f, 0.12f, 0.8f, 0.3f, 0.6f, 0.95f },     // Mute
+    { 0.35f, 1.6f, 0.0f, 0.0f, 0.12f, 2.0f, 1400.0f, 0.4f, 0.8f, 1.0f, 0.8f, 0.5f, 0.25f },     // Ghost
+    { 1.00f, 1.0f, 0.0f, 0.0f, 0.35f, 3.0f, 1600.0f, 0.6f, 1.0f, 1.0f, 1.0f, 1.0f, 0.45f },    // Flam (the engine plays the grace)
+    { 1.00f, 1.0f, 0.0f, 0.0f, 0.35f, 3.0f, 1600.0f, 0.6f, 1.0f, 1.0f, 1.0f, 1.0f, 0.5f },     // Roll (the engine plays four)
+    { 1.00f, 1.2f, 0.0f, 0.0f, 0.25f, 2.5f, 1300.0f, 0.5f, 1.0f, 1.0f, 1.0f, 1.0f, 0.55f },    // Press
 };
 
 // What the engine asks of a strike.
@@ -84,7 +92,7 @@ struct Hit
 struct VoiceKnobs
 {
     float tune = 0, source = 0.6f, ring = 0.45f, position = 0.35f, snap = 0.2f, bend = 0.2f, drift = 0.1f;
-    float fmIndex = 0.2f, feedback = 0, timbre = 0.12f, symmetry = 0, bloom = 0.3f;
+    float fmIndex = 0.2f, feedback = 0, timbre = 0.12f, symmetry = 0, bloom = 0.3f, human = 0.3f;
     float gateMode = 0.5f, resonance = 0, strike = 0.4f, decay = 0.45f, open = 0, hold = 0, memory = 0.3f, accent = 0.5f,
           glide = 0.35f;
     int body = 1, ratio = 10;
@@ -202,7 +210,11 @@ public:
         note = noteTarget;
         const StrokeShape& s = strokeShapes[h.stroke & 7];
         const Body& b = bodies[clampBody (knobs.body)];
-        const float force = clampf (h.force * s.force, 0.0f, 1.0f);
+        // Human: no two hits alike (force, place, the contact, the bend, each mode's tuning a hair), the same each time
+        // for the same strike count.
+        const float hu = knobs.human;
+        auto jitter = [this, hu] (uint32_t salt) { return hu * (unit ((int64_t) strikes, salt) - 0.5f); };
+        const float force = clampf (h.force * s.force * (1.0f + 0.16f * jitter (0x1f83d9abu)), 0.0f, 1.0f);
         // The accent capacitor: half of what it lacks at each accent, draining slowly between.
         float boost = 0.0f;
         if (h.accent)
@@ -214,6 +226,7 @@ public:
         lastAccent = h.accent;
         // How loud the hand plays into the gate (the vactrol alone barely quiets a low tone): eased in over a tick.
         levelTarget = (0.2f + 0.8f * force) * (1.0f + 0.25f * boost);
+        easing = true; // a new target: ease to it (the knobs' easing rests once everything has landed)
         // The LED: a pulse of Strike's length at the force (accents harder), then Hold while the gate is held. A ping
         // lights the vactrol only partly (a default one to about 0.08 of the 292's full 40 mA, a gate near 6 kHz), so
         // the gate closes on the note in a few hundred ms, as a pinged 292 does; a longer Strike opens it further.
@@ -222,32 +235,56 @@ public:
         held = h.hold;
         holdLevel = force * (1.0f + 0.5f * boost) * knobs.hold * 0.06f;
         gateDamp = s.gateDamp;
-        // The membrane: where it is struck, how long it rings for this stroke.
-        const float place = s.placeShare > 0.0f ? knobs.position + (s.place - knobs.position) * s.placeShare : knobs.position;
+        // The hand lands on a head that may still ring: its contact damps that first (a mute most, a ghost least).
+        if (! idle && skinActive)
+        {
+            const v4 keep = splat (1.0f - s.contact * (0.4f + 0.6f * force));
+            mu0 *= keep, mv0 *= keep, mu1 *= keep, mv1 *= keep;
+        }
+        // The membrane: where it is struck, how long it rings for this stroke (the fundamental by its own share).
+        float place = s.placeShare > 0.0f ? knobs.position + (s.place - knobs.position) * s.placeShare : knobs.position;
+        place = clampf (place + 0.16f * jitter (0x2b7e1516u), 0.0f, 1.0f);
         float amp[8], total = 0.0f;
         for (int i = 0; i < 8; ++i)
             amp[i] = b.centre[i] + (b.edge[i] - b.centre[i]) * place, total += amp[i];
         const float norm = total > 0.0f ? 1.0f / total : 0.0f;
         const float ringT = ringSeconds (knobs.ring) * s.modeDamp;
+        float fundamentalT60 = ringT;
         for (int i = 0; i < 8; ++i)
         {
-            const float t60 = std::max (0.004f, ringT * b.decay[i]);
+            const bool fundamental = b.ratio[i] == 1.0f;
+            const float t60 = std::max (0.004f, ringT * b.decay[i] * (fundamental ? s.fundDamp : 1.0f));
+            if (fundamental) fundamentalT60 = t60;
             const float r = (float) std::exp (-6.907755 / ((double) t60 * fs));
             (i < 4 ? mg0 : mg1)[i & 3] = amp[i] * norm;
             (i < 4 ? mr0 : mr1)[i & 3] = r;
+            (i < 4 ? detune0 : detune1)[i & 3] = 1.0f + 0.008f * jitter (0x9e3779b9u + (uint32_t) i * 0x632be5abu);
         }
-        // The hand: a raised-cosine contact of area `force` (its width sets how high it reaches), and a noise burst.
-        pulseLen = std::max (2, (int) std::lround (s.widthMs * 0.001f * fs));
+        // The hand: a raised-cosine contact of area `force`, shorter the harder (it reaches higher modes: a soft hand is
+        // darker), and a noise burst: broadband into the skin, and its crack (a band around noiseHz) into the gate.
+        const float width = s.widthMs * (1.4f - 0.6f * force) * (1.0f + 0.4f * jitter (0x3c6ef372u));
+        pulseLen = std::max (2, (int) std::lround (width * 0.001f * fs));
         pulseN = 0;
         pulseStep = 0.5f / (float) pulseLen;
         pulseAmp = 2.0f * force / (float) pulseLen * skinDrive;
-        burst = force * s.burst;
+        burst = force * std::sqrt (force) * s.burst;
         burstDecay = (float) std::exp (-1.0 / ((double) s.burstMs * 0.001 * fs));
         burstCoef = onePoleCoeff (2.0f * (float) M_PI * (1500.0f + 14000.0f * s.bright) * invFs);
+        {
+            constexpr float q = 1.3f;
+            const float g = tanPi (std::min (s.noiseHz * invFs, 0.45f));
+            crackK = 1.0f / q;
+            crackA1 = 1.0f / (1.0f + g * (g + crackK));
+            crackA2 = g * crackA1;
+            crackA3 = g * crackA2;
+            crackS1 = crackS2 = 0.0f;
+        }
         exciting = true;
-        // The pitch: tension bends it (harder hits more; the body and stroke set the sign and depth); Press rises.
-        bendSemis = knobs.bend * 12.0f * force * b.bend * s.bend;
-        bendDecay = (float) std::exp (-8.0 / ((s.bend > 1.2f ? 0.07 : 0.04) * fs));
+        // The pitch: tension bends it (harder hits more; the body and stroke set the sign and depth) and the bend falls
+        // as the head's swing does (amplitude squared: twice as fast as the fundamental's ring); Press rises.
+        bendSemis = knobs.bend * 12.0f * force * b.bend * s.bend * (1.0f + 0.5f * jitter (0x4f1bbcdcu));
+        const double bendTau = std::min (0.15, std::max (0.012, (double) fundamentalT60 / 13.8));
+        bendDecay = (float) std::exp (-8.0 / (bendTau * fs));
         pressTarget = h.stroke == Stroke::press ? 2.0f + 5.0f * std::fabs (knobs.bend) : 0.0f;
         if (h.stroke != Stroke::press)
             pressSemis = 0.0f;
@@ -405,7 +442,7 @@ private:
         {
             modesDirty = false;
             modeF0 = f0;
-            const v4 t0 = splat (2.0f * incP) * ratio0, t1 = splat (2.0f * incP) * ratio1;
+            const v4 t0 = splat (2.0f * incP) * ratio0 * detune0, t1 = splat (2.0f * incP) * ratio1 * detune1;
             auto modes = [] (v4 t, v4 r, v4& c, v4& s, v4& w) {
                 for (int i = 0; i < 4; ++i)
                     w[i] = clampf ((0.9f - t[i]) * 10.0f, 0.0f, 1.0f), t[i] = std::min (t[i], 0.9f);
@@ -444,7 +481,8 @@ private:
 
         // Idle: closed, nothing driving it, the membrane still, nothing coming out.
         const v4 energy = vabs (mu0) + vabs (mv0) + vabs (mu1) + vabs (mv1);
-        skinActive = exciting || sum (energy) > 1e-7f;
+        skinActive = (exciting || sum (energy) > 1e-7f) && (skinLevel != 0.0f || skinTarget != 0.0f); // Source at 0: no skin
+        oscOn = oscLevel != 0.0f || oscTarget != 0.0f;                                                   // at 100 %: no oscillator
         if (! skinActive)
             mu0 = mu1 = mv0 = mv1 = splat (0.0f);
         if (light < 2e-4f && ledBase == 0.0f && strikeLeft == 0 && ! skinActive && quietOut < 1e-6f)
@@ -496,7 +534,7 @@ private:
         const float src = knobs.source;
         oscTarget = 1.0f - src;
         skinTarget = src;
-        snapTarget = 0.6f * knobs.snap;
+        snapTarget = 0.9f * knobs.snap;
         skinNoise = 0.5f * knobs.snap; // Snap is the hand's noise: through the skin, and straight into the gate
         indexTarget = knobs.fmIndex;
         feedbackTarget = knobs.feedback;
@@ -533,12 +571,16 @@ private:
         light += (u - light) * (u > light ? cRise : cFall);
 
         // The complex oscillator: the principal's phase moved by the modulator and by the gate's own output.
-        phaseM += incM;
-        phaseM -= std::floor (phaseM);
-        phaseP += incP;
-        phaseP -= std::floor (phaseP);
-        const float pm = pmIndex != 0.0f ? pmIndex * sinTurns (phaseM) : 0.0f;
-        const float osc = sinTurns (phaseP + pm + pmFeedback * last);
+        float osc = 0.0f;
+        if (oscOn)
+        {
+            phaseM += incM;
+            phaseM -= std::floor (phaseM);
+            phaseP += incP;
+            phaseP -= std::floor (phaseP);
+            const float pm = pmIndex != 0.0f ? pmIndex * sinTurns (phaseM) : 0.0f;
+            osc = sinTurns (phaseP + pm + pmFeedback * last);
+        }
 
         // The hand: the contact pulse and the burst.
         float excite = 0.0f, crack = 0.0f;
@@ -551,12 +593,18 @@ private:
                 ++pulseN;
             }
             noise ^= noise << 13, noise ^= noise >> 17, noise ^= noise << 5;
-            const float n = (float) (int32_t) noise * (1.0f / 2147483648.0f);
-            burstLp += (n * burst - burstLp) * burstCoef;
+            const float n = (float) (int32_t) noise * (1.0f / 2147483648.0f) * burst;
+            burstLp += (n - burstLp) * burstCoef;
             burst *= burstDecay;
-            crack = burstLp;
+            // The crack: the burst through a band-pass (a trapezoidal SVF, unity at its centre).
+            const float c3 = n - crackS2;
+            const float c1 = crackA1 * crackS1 + crackA2 * c3;
+            const float c2 = crackS2 + crackA2 * crackS1 + crackA3 * c3;
+            crackS1 = 2.0f * c1 - crackS1;
+            crackS2 = 2.0f * c2 - crackS2;
+            crack = crackGain * crackK * c1;
             excite += skinNoise * burstLp;
-            exciting = pulseN < pulseLen || burst > 1e-5f;
+            exciting = pulseN < pulseLen || burst > 2e-4f; // the burst's last 74 dB are left out
         }
 
         // The membrane: eight rotations, two lanes of four.
@@ -589,11 +637,12 @@ private:
         return y;
     }
 
-    // The membrane's level against the oscillator's, and the contact's drive into it.
-    static constexpr float skinGain = 1.6f, skinDrive = 1.0f;
+    // The membrane's level against the oscillator's, the contact's drive into it, the crack's level (a band of noise
+    // has a fraction of white noise's power).
+    static constexpr float skinGain = 1.6f, skinDrive = 1.0f, crackGain = 3.0f;
 
     VoiceKnobs knobs;
-    bool dirty = true, smoothed = false, idle = true, exciting = false, skinActive = false, folding = false, limiting = false;
+    bool dirty = true, smoothed = false, idle = true, exciting = false, skinActive = false, oscOn = true, folding = false, limiting = false;
     bool held = false, sliding = false, gateDirty = true, lastAccent = false, easing = true, modesDirty = true;
     float modeF0 = 1.0f;
     uint64_t skippedTicks = 0;
@@ -602,9 +651,10 @@ private:
     float phaseP = 0, phaseM = 0, incP = 0, incM = 0, pmIndex = 0, pmFeedback = 0, last = 0;
     // Membrane: states, rotations (r cos, r sin), decays, input gains, output weights, ratios.
     v4 mu0 {}, mu1 {}, mv0 {}, mv1 {}, mc0 {}, mc1 {}, ms0 {}, ms1 {}, mr0 {}, mr1 {}, mg0 {}, mg1 {}, mw0 {}, mw1 {};
-    v4 ratio0 {}, ratio1 {};
+    v4 ratio0 {}, ratio1 {}, detune0 { 1, 1, 1, 1 }, detune1 { 1, 1, 1, 1 };
     // Exciter.
     int pulseN = 0, pulseLen = 0;
+    float crackK = 1, crackA1 = 1, crackA2 = 0, crackA3 = 0, crackS1 = 0, crackS2 = 0;
     float skinNoise = 0.06f, pulseAmp = 0, pulseStep = 0, burst = 0, burstDecay = 0, burstLp = 0, burstCoef = 0;
     uint32_t noise = 0x2545f491u;
     // Fold.

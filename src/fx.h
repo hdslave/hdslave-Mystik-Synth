@@ -51,7 +51,7 @@ public:
         for (auto& line : spring)
             std::fill (line.begin(), line.end(), 0.0f);
         for (int k = 0; k < 8; ++k)
-            ap1[k] = ap2[k] = v2 { 0.0f, 0.0f };
+            apEven[k] = apOdd[k] = v2 { 0.0f, 0.0f };
         write = springWrite = 0;
         echoQuiet = springQuiet = 1u << 30;
         absorbL = absorbR = 0.0f;
@@ -153,6 +153,14 @@ public:
     bool quiet() const { return echoQuiet > mask && springQuiet > springMask; }
 
 private:
+    // The echo's loop: exactly linear below 0.75 (a repeat is not squeezed), then a tanh knee toward 1 (Repeats over
+    // 100 % runs away into it, held).
+    static float softClip (float y)
+    {
+        const float a = std::fabs (y);
+        return a <= 0.75f ? y : std::copysign (0.75f + 0.25f * tanhFast ((a - 0.75f) * 4.0f), y);
+    }
+
     // Linear below 0.9, then rounds off toward 1.
     static float ceiling (float y)
     {
@@ -187,8 +195,8 @@ private:
             absorbL += (tl - absorbL) * absorbCoef;
             absorbR += (tr - absorbR) * absorbCoef;
             // Ping-pong: the dry sound enters on the left, each side feeds the other.
-            echoL[write] = tanhFast (x + feedback * absorbR);
-            echoR[write] = tanhFast (feedback * absorbL);
+            echoL[write] = softClip (x + feedback * absorbR);
+            echoR[write] = softClip (feedback * absorbL);
             write = (write + 1) & mask;
             left[i] = x + mix * tl;
             right[i] = x + mix * tr;
@@ -219,11 +227,14 @@ private:
             const v2 in = { x, x };
             hpState += (in - hpState) * hp;
             v2 s = (in - hpState) + fb * lpState;
+            // Each stage's v[n-2] is in the slot of this sample's parity: read it, then leave v[n] there.
+            v2* const slot = (springWrite & 1u) ? apOdd : apEven;
             for (int k = 0; k < 8; ++k)
             {
-                const v2 v = s - coefficient * ap2[k];
-                s = coefficient * v + ap2[k];
-                ap2[k] = ap1[k], ap1[k] = v;
+                const v2 old = slot[k];
+                const v2 v = s - coefficient * old;
+                s = coefficient * v + old;
+                slot[k] = v;
             }
             spring[0][springWrite] = s[0];
             spring[1][springWrite] = s[1];
@@ -240,7 +251,7 @@ private:
                 for (auto& line : spring)
                     std::fill (line.begin(), line.end(), 0.0f);
                 for (int k = 0; k < 8; ++k)
-                    ap1[k] = ap2[k] = v2 { 0.0f, 0.0f };
+                    apEven[k] = apOdd[k] = v2 { 0.0f, 0.0f };
                 hpState = lpState = v2 { 0.0f, 0.0f };
             }
         }
@@ -261,7 +272,7 @@ private:
     std::vector<float> spring[2];
     int springLength[2] { 1, 1 };
     uint32_t springMask = 0, springWrite = 0, springQuiet = 1u << 30;
-    v2 ap1[8] {}, ap2[8] {}, hpState {}, lpState {};
+    v2 apEven[8] {}, apOdd[8] {}, hpState {}, lpState {};
     float springHp = 0, springLp = 0, springFeedback = 0.5f;
     static constexpr uint32_t scratchSize = 256;
     float scratch[scratchSize] {};

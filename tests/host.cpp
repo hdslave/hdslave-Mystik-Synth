@@ -466,7 +466,8 @@ void testPresets()
     const auto* discovery = static_cast<const clap_preset_discovery_factory*> (entry->get_factory (CLAP_PRESET_DISCOVERY_FACTORY_ID));
     CHECK (discovery != nullptr && discovery->count (discovery) == 1);
     const char* keys[] = { "mystik", "west-bongo", "tabla-teental", "conga-tumbao", "udu-bloom", "acid-gate", "turing-acid",
-                           "singing-bowl", "slit-euclid", "handpan-drift", "maqsum-night", "feedback-witch", "bouncing-ball", "gankogui-bell" };
+                           "singing-bowl", "slit-euclid", "handpan-drift", "maqsum-night", "feedback-witch", "bouncing-ball", "gankogui-bell",
+                           "goblet-maqsum" };
     for (const char* key : keys)
     {
         Instance a;
@@ -1028,7 +1029,8 @@ void testScreen (const std::string& folder)
 void demos (const std::string& folder)
 {
     const char* keys[] = { "mystik", "west-bongo", "tabla-teental", "conga-tumbao", "udu-bloom", "acid-gate", "turing-acid",
-                           "singing-bowl", "slit-euclid", "handpan-drift", "maqsum-night", "feedback-witch", "bouncing-ball", "gankogui-bell" };
+                           "singing-bowl", "slit-euclid", "handpan-drift", "maqsum-night", "feedback-witch", "bouncing-ball", "gankogui-bell",
+                           "goblet-maqsum" };
     for (const char* key : keys)
     {
         Instance a;

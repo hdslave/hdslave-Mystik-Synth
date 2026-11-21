@@ -148,9 +148,9 @@ The modes:
 
 Mystik (a conga line in Hijaz), West Bongo (the oscillator alone, pinged), Tabla Teental, Conga Tumbao, Udu Bloom,
 Acid Gate (a 303-ish line through the Lowpass mode), Turing Acid, Singing Bowl, Slit Euclid (Slendro), Handpan Drift,
-Maqsum Night (a doumbek: the Goblet body), Feedback Witch, Bouncing Ball, Gankogui Bell (the standard bell pattern).
-Their Volumes are set so they play about equally loud (K-weighted, the 90th percentile of 400 ms loudness), except
-where a sparse, peaky pattern would have to clip to get there: those peak at about -2 dBFS instead.
+Maqsum Night, Feedback Witch, Bouncing Ball, Gankogui Bell (the standard bell pattern): the presets of 0.1, ported to
+the 0.2 engine with their values exactly as they were and Human at 0 (0.1 had no variation from hit to hit). And
+Goblet Maqsum (0.2): the maqsum on the Goblet body, the doumbek's own.
 
 ## Sources, and what is inferred
 

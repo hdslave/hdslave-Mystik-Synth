@@ -228,7 +228,8 @@ std::vector<Scenario> scenarios()
 {
     std::vector<Scenario> list;
     for (const char* key : { "mystik", "west-bongo", "tabla-teental", "conga-tumbao", "udu-bloom", "acid-gate", "turing-acid", "singing-bowl",
-                             "slit-euclid", "handpan-drift", "maqsum-night", "feedback-witch", "bouncing-ball", "gankogui-bell" })
+                             "slit-euclid", "handpan-drift", "maqsum-night", "feedback-witch", "bouncing-ball", "gankogui-bell",
+                             "goblet-maqsum" })
     {
         Scenario s;
         s.name = std::string ("preset-") + key;

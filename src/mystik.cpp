@@ -190,9 +190,9 @@ bool paramsFromText (const clap_plugin*, clap_id id, const char* text, double* v
     return true;
 }
 
-// MIDI: notes, the wheel (pitch bend +-2 semitones, mod wheel folds), and the channel modes. 120, 121 and 123 at 0 are
-// All Sound Off, Reset All Controllers and All Notes Off, which hosts send on stop and panic (Melodee does, on every
-// channel): they stop sound or notes and never move a parameter.
+// MIDI: notes, the wheel (pitch bend +-2 semitones, mod wheel folds), and the channel modes, which hosts send on stop
+// and panic (Melodee sends 120 and 123 on every channel): 120 at 0 All Sound Off, 123 at 0 All Notes Off, and 121 (at
+// any value) Reset All Controllers, which puts the bend and the mod wheel back at rest. None moves a parameter.
 void midi (Plugin& p, const uint8_t* data)
 {
     const int status = data[0] & 0xf0, a = data[1] & 0x7f, b = data[2] & 0x7f;
@@ -206,6 +206,8 @@ void midi (Plugin& p, const uint8_t* data)
         case 0xb0:
             if (a == 1)
                 p.mod = (float) b / 127.0f * 0.5f, p.engine.wheel (p.bend, p.mod);
+            else if (a == 121)
+                p.bend = p.mod = 0.0f, p.engine.wheel (p.bend, p.mod);
             else if (b == 0 && a == 120)
                 p.engine.allSoundOff();
             else if (b == 0 && a == 123)

@@ -55,7 +55,8 @@ the drum. With it off, Notes decides: **Pitch** (the key sets the pitch from C3;
 overlapping keys slide and hold), **Strokes** (keys 36-43 play the eight strokes at Tune, each 8 keys up an octave:
 two drums, high and low, like a pair of bongos), **Steps** (keys 36-51 play steps 1-16). Pitch bend is +-2
 semitones, the mod wheel folds. Melodee's All Sound Off (CC 120 at 0) silences the drum and the tails, All Notes Off
-(CC 123 at 0) lets held notes go, a choke stops the drum.
+(CC 123 at 0) lets held notes go, Reset All Controllers (CC 121) puts the bend and the mod wheel back at rest, a choke
+stops the drum.
 
 ## Parameters
 
@@ -102,7 +103,8 @@ Ids are fixed forever (a project keeps values by id); see `docs/design.md` for t
 
 **FX**: Drive (soft clip, up to 18 dB), Crush (sample rate to 1.5 kHz and bits to 3, together), Echo (the wet level),
 Echo Time (1/32 to 1/2, dotted and triplets, at the song's tempo), Repeats (to 105 %: it can run away, held by a soft
-clip), Absorb (14 kHz to 600 Hz in the loop), Space (the tank's level), Space Decay, Volume.
+clip; a 20 Hz high-pass in the loop keeps DC from building up), Absorb (14 kHz to 600 Hz in the loop), Space (the
+tank's level), Space Decay, Volume.
 
 **Sequencer**
 
@@ -181,10 +183,11 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
     tools/bench.sh           # instructions a block (callgrind): worst, acid, typical, stopped, a page frame
     ./build.sh fingerprint-update   # only after a change meant to change the sound
 
-- `tests/host.cpp` (310,623 checks): the description, every parameter's text both ways, state, presets, the gate held
+- `tests/host.cpp` (339,759 checks): the description, every parameter's text both ways, state, presets, the gate held
   to the 292's response at seven settings, the vactrol's timing, steps to the sample (swing too), every sequencer mode,
   stop and Play again, a loop the host tells a block late, the same output in blocks of 1, 37, 128 and 4096 frames,
-  keys and MIDI, Regenerate, extreme settings at 44.1, 48 and 96 kHz, and the page (its pictures in `build/`).
+  keys and MIDI, Hold ending with the note (a flam's, roll's or bounce's later hits do not light it again), Regenerate,
+  the echo's loop shedding DC, extreme settings at 44.1, 48 and 96 kHz, and the page (its pictures in `build/`).
 - `tests/fingerprint.cpp`: a hash of every output sample over 44 scenarios (each preset, each mode, keys, MIDI, rates,
   the transport, random settings, block sizes).
 - In Melodee's own host: `clap_check` (loads and plays it as Melodee does) and `melodee --melodee-plugin-screen` (its

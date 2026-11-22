@@ -85,6 +85,8 @@ struct Hit
     bool accent = false;
     bool slide = false;  // glide to the pitch without a new strike
     bool hold = false;   // keep the LED on (Hold) until release()
+    bool follow = false; // a further hit of one stroke (a flam's main hit, a roll's, a bounce's): Hold stays as it is,
+                         // so one coming after the note (or the step's gate) has ended does not light it again
     float semis = 0.0f;  // the note, from Tune
 };
 
@@ -232,7 +234,7 @@ public:
         // the gate closes on the note in a few hundred ms, as a pinged 292 does; a longer Strike opens it further.
         strikeLeft = std::max (1, (int) std::lround (strikeSeconds (knobs.strike) * fs));
         strikeLevel = 0.4f * force * (1.0f + boost);
-        held = h.hold;
+        held = h.follow ? held : h.hold;
         holdLevel = force * (1.0f + 0.5f * boost) * knobs.hold * 0.06f;
         gateDamp = s.gateDamp;
         // The hand lands on a head that may still ring: its contact damps that first (a mute most, a ghost least).

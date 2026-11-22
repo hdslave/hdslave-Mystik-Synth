@@ -826,6 +826,36 @@ void testNotes()
         CHECK (peakOf (l, 0, 12800) > 0.01);
         CHECK (peakOf (l, 12800 + 128, 48000) < 0.02); // Open still lets a little of the oscillator through
     }
+    // CC 121 (Reset All Controllers, at any value) puts the bend back at rest; 120, 121 and 123 move no parameter.
+    {
+        Instance a;
+        pure (a);
+        std::vector<double> before;
+        for (uint32_t i = 0; i < a.params->count (a.plugin); ++i)
+        {
+            clap_param_info info {};
+            a.params->get_info (a.plugin, i, &info);
+            double v = 0.0;
+            a.params->get_value (a.plugin, info.id, &v);
+            before.push_back (v);
+        }
+        std::vector<float> l, r;
+        a.render (48000 * 2, 128, l, r, [] (uint64_t) { return stopped(); }, [] (uint64_t at, uint32_t, Events& e) {
+            if (at == 0) e.midi (0, 0x90, 60, 100), e.midi (1, 0xe0, 127, 127), e.midi (2, 0xb0, 1, 127); // bend +2, mod wheel up
+            if (at == 48000) e.midi (0, 0xb0, 121, 127), e.midi (1, 0xb0, 120, 5), e.midi (2, 0xb0, 123, 9);
+        });
+        // Bent and folded (the fold's extra zero crossings read as a higher pitch), then back: the plain C2.
+        CHECK (pitchOf (l, 12000, 47000, 48000.0) > 140.0);
+        CHECK_NEAR (pitchOf (l, 60000, 95000, 48000.0), 130.81, 1.0);
+        for (uint32_t i = 0; i < a.params->count (a.plugin); ++i)
+        {
+            clap_param_info info {};
+            a.params->get_info (a.plugin, i, &info);
+            double v = 0.0;
+            a.params->get_value (a.plugin, info.id, &v);
+            CHECK (v == before[i]);
+        }
+    }
     {
         Instance a;
         a.setup ({ { "Sequencer", 0.0 }, { "Echo", 0.0 }, { "Space", 0.0 }, { "Decay", 1.0 } });
@@ -854,6 +884,75 @@ void testNotes()
     }
 }
 
+// Hold lights the gate only while a note (or a step's gate) is held: the further hits of a flam, a roll or a bounce that
+// come after the note has ended, or after the step's gate, must not light it again (0.2.1 droned on for ever).
+void testHold()
+{
+    const std::vector<std::pair<std::string, double>> dry { { "Echo", 0.0 }, { "Space", 0.0 }, { "Hold", 0.6 }, { "Decay", 0.0 },
+                                                            { "Ring", 0.0 }, { "Sequencer", 0.0 } };
+    // Strokes: key 41 (Flam) let go before its main hit (22 ms), key 42 (Roll) before its second and its last (106 ms).
+    for (auto [key, offAt] : { std::pair { 41, 480u }, std::pair { 42, 2000u }, std::pair { 42, 4800u } })
+    {
+        Instance a;
+        a.setup (dry);
+        a.setup ({ { "Notes", a.valueOf ("Notes", "Strokes") } });
+        const auto out = a.keys (48000 * 3, { { 0, key, 0.9, true }, { offAt, key, 0.0, false } });
+        CHECK (peakOf (out, 0, 4800) > 0.01);
+        CHECK (peakOf (out, 48000 * 2) < 1e-5);
+    }
+    // Held through its further hits, it stays lit while held, and ends when let go.
+    {
+        Instance a;
+        a.setup (dry);
+        a.setup ({ { "Notes", a.valueOf ("Notes", "Strokes") } });
+        const auto out = a.keys (48000 * 3, { { 0, 42, 0.9, true }, { 24000, 42, 0.0, false } });
+        CHECK (peakOf (out, 12000, 24000) > 1e-3);
+        CHECK (peakOf (out, 48000 * 2) < 1e-5);
+    }
+    // Steps: step 1 a Flam, its key let go before the main hit.
+    {
+        Instance a;
+        a.setup (dry);
+        a.setup ({ { "Notes", a.valueOf ("Notes", "Steps") }, { "Stroke 1", a.valueOf ("Stroke 1", "Flam") } });
+        const auto out = a.keys (48000 * 3, { { 0, 36, 0.9, true }, { 480, 36, 0.0, false } });
+        CHECK (peakOf (out, 0, 4800) > 0.01);
+        CHECK (peakOf (out, 48000 * 2) < 1e-5);
+    }
+    // The sequencer: Acid Gate stopped during step 12 (a Roll). The step starts at beat 2.76 (Swing 52 %), frame 66,240 at
+    // 120 BPM; the roll's hits at 0, 2,236, 3,801 and 4,897 frames from there, its gate ends at 3,168.
+    {
+        Instance a;
+        CHECK (a.loadPreset ("acid-gate"));
+        a.setup ({ { "Echo", 0.0 }, { "Space", 0.0 } });
+        const uint64_t stopAt = 67328; // the first block after the roll's first hit
+        std::vector<float> l, r;
+        a.render (48000 * 4, 128, l, r, [&] (uint64_t at) { return at < stopAt ? playingFrom (0.0, 120.0, 48000.0, at) : stopped(); });
+        CHECK (peakOf (l, 66240, 67328) > 0.01);
+        CHECK (peakOf (l, 48000 * 3) < 1e-5);
+    }
+    // Bounce: stopped while the ball still has bounces to come.
+    {
+        Instance a;
+        a.setup (dry);
+        a.setup ({ { "Sequencer", 1.0 }, { "Seq Mode", a.valueOf ("Seq Mode", "Bounce") } });
+        std::vector<float> l, r;
+        a.render (48000 * 4, 128, l, r, [&] (uint64_t at) { return at < 14400 ? playingFrom (0.0, 120.0, 48000.0, at) : stopped(); });
+        CHECK (peakOf (l, 0, 4800) > 0.01);
+        CHECK (peakOf (l, 48000 * 3) < 1e-5);
+    }
+    // The page's Shift + Push on SEQ plays step 1 stopped: lit for its gate, then it ends.
+    {
+        Instance a;
+        a.setup (dry);
+        const auto* screen = static_cast<const clap_plugin_melodee_screen*> (a.plugin->get_extension (a.plugin, CLAP_EXT_MELODEE_SCREEN));
+        melodee_screen_input_t next { MELODEE_SCREEN_NUDGE, 1, false }, play { MELODEE_SCREEN_PUSH, 0, true };
+        CHECK (screen != nullptr && screen->input (a.plugin, &next) && screen->input (a.plugin, &play));
+        const auto out = a.play (48000 * 3, false);
+        CHECK (peakOf (out, 0, 4800) > 0.01);
+        CHECK (peakOf (out, 48000 * 2) < 1e-5);
+    }
+}
+
 void testRegenerate()
 {
     Instance a;
@@ -872,6 +971,21 @@ void testRegenerate()
         released |= id == a.id ("Regenerate") && v == 0.0;
     }
     CHECK (told && released);
+}
+
+// The echo's loop high-passes at 20 Hz: at Repeats 97 % with Absorb 100 % (a loop gain just over 1 at DC) the folded
+// Acid Gate's offset and rumble die away instead of building up for ever.
+void testEchoDc()
+{
+    Instance a;
+    CHECK (a.loadPreset ("acid-gate"));
+    a.setup ({ { "Echo", 0.5 }, { "Space", 0.0 }, { "Repeats", 0.97 }, { "Absorb", 1.0 }, { "Hold", 0.0 } });
+    std::vector<float> l, r;
+    a.render (48000 * 40, 128, l, r, [] (uint64_t at) { return at < 48000 * 4 ? playingFrom (0.0, 120.0, 48000.0, at) : stopped(); });
+    auto mean = [&] (size_t from, size_t to) { double s = 0.0; for (size_t i = from; i < to; ++i) s += l[i]; return s / (double) (to - from); };
+    CHECK (rmsOf (l, 48000 * 10, 48000 * 11) > 0.01);
+    CHECK (std::fabs (mean (48000 * 39, 48000 * 40)) < 1e-3);
+    CHECK (rmsOf (l, 48000 * 39, 48000 * 40) < 0.5 * rmsOf (l, 48000 * 10, 48000 * 11));
 }
 
 void testExtremes()
@@ -1023,6 +1137,73 @@ void testScreen (const std::string& folder)
     for (int p = 0; p < 7; ++p) in (MELODEE_SCREEN_NUDGE, -1);
     play (24000, true, 0.0);
     shot ("play-default");
+
+    // PLAY while a shorter cycle comes in: the values reach the page at once, the engine's cycle and place only at its
+    // next step. Places past the new rhythm's end read as rests (make sanitize stops on a read past its timeline).
+    CHECK ((knobs() == std::vector<clap_id> { a.id ("Timbre"), a.id ("Decay"), a.id ("Resonance") }));
+    auto flush = [&] (const std::string& name, double v) {
+        Events e;
+        e.param (0, a.id (name), v);
+        OutEvents out;
+        a.params->flush (a.plugin, &e.in, &out.out);
+    };
+    a.setup ({ { "Seq Mode", a.valueOf ("Seq Mode", "Rhythm") }, { "Rhythm", a.valueOf ("Rhythm", "Teental") } });
+    play (6000 * 15 + 3000, true, 0.0); // into Teental's 16th place
+    flush ("Rhythm", a.valueOf ("Rhythm", "Dadra"));
+    CHECK (paint (true));
+    a.setup ({ { "Seq Mode", a.valueOf ("Seq Mode", "Pattern") }, { "Rhythm", a.valueOf ("Rhythm", "Dadra") } });
+    play (6000 * 15 + 3000, true, 0.0);
+    flush ("Seq Mode", a.valueOf ("Seq Mode", "Rhythm"));
+    CHECK (paint (true));
+    play (6000, true, 4.0);
+    CHECK (paint (true));
+
+    // The page asks for frames only while something moves. Left while it sounds (the scope live on PLAY), then stopped
+    // and silent: no more frames asked for (0.2.1 asked for ever once it had left PLAY with the scope live).
+    a.setup ({ { "Seq Mode", a.valueOf ("Seq Mode", "Pattern") } });
+    play (24000, true, 0.0);
+    now += 40;
+    paint();
+    CHECK (in (MELODEE_SCREEN_NUDGE, 1)); // to SEQ
+    play (128, true, 1.0);
+    now += 40;
+    paint();
+    for (int k = 0; k < 4; ++k)
+    {
+        play (48000, false);
+        now += 40;
+        paint();
+    }
+    int askedNow = paints;
+    for (int k = 0; k < 3; ++k)
+    {
+        now += 100;
+        paint();
+    }
+    CHECK (paints == askedNow);
+    // A drone (Open) on PLAY keeps it moving while the host runs it; once the host stops running it (asleep), the light
+    // it last told is not animated for ever.
+    CHECK (in (MELODEE_SCREEN_NUDGE, -1)); // back to PLAY
+    a.setup ({ { "Sequencer", 0.0 }, { "Open", 1.0 } });
+    play (24000, false);
+    now += 40;
+    paint();
+    askedNow = paints;
+    for (int k = 0; k < 3; ++k)
+    {
+        play (1920, false);
+        paint();
+    }
+    CHECK (paints > askedNow + 2);
+    now += 2500;
+    paint();
+    askedNow = paints;
+    for (int k = 0; k < 3; ++k)
+    {
+        now += 100;
+        paint();
+    }
+    CHECK (paints == askedNow);
 }
 
 // --- Demos ---------------------------------------------------------------------------------------------------------
@@ -1084,7 +1265,9 @@ int main (int argc, char** argv)
     run ("transport", testTransport);
     run ("blocks", testBlockSizes);
     run ("notes", testNotes);
+    run ("hold", testHold);
     run ("regenerate", testRegenerate);
+    run ("echo-dc", testEchoDc);
     run ("extremes", testExtremes);
     run ("screen", [&] { testScreen (argv[2]); });
     run ("demos", [&] { demos (argv[2]); });

@@ -49,6 +49,7 @@ struct Telemetry
     std::atomic<bool> running { false }, accent { false };
     std::atomic<float> force { 0.0f };
     std::atomic<uint32_t> scopeAt { 0 }, lightAt { 0 }, generationAt { 0 }, generationsSeen { 0 };
+    std::atomic<uint32_t> renders { 0 }; // one more each render: the page sees the audio thread is still running
     std::atomic<float> scope[scopeSize];
     std::atomic<float> lightTrail[lightSize];
     std::atomic<uint32_t> generations[history]; // the automaton's last 16 rows (row g at g % 16)
@@ -200,13 +201,15 @@ public:
             voice.release();
     }
 
-    // The page plays a step (its pitch, trig and stroke; a rest plays as a hit).
+    // The page plays a step (its pitch, trig and stroke; a rest plays as a hit). No key is held to end it: its gate ends
+    // as a step's would, at Gate's share of the step a key plays (an eighth of a second), or Hold would never let go.
     void audition (int s)
     {
         applyKnobs();
         Decision d = stepDecision (s);
         d.slide = false;
         playDecision (d, -1);
+        enqueue (now + (uint64_t) std::max (1.0, knob[ParamId::gate] * rate * 0.125), Queued::release, Hit {}, -1);
     }
 
     void choke() { voice.choke(), fx.cut(), held = 0, queueSize = 0; }
@@ -643,7 +646,7 @@ private:
             grace.stroke = Stroke::open, grace.force *= 0.45f, grace.accent = false;
             voice.strike (grace);
             Hit main = h;
-            main.stroke = Stroke::open;
+            main.stroke = Stroke::open, main.follow = true;
             enqueue (now + (uint64_t) std::lround (0.022 * rate), Queued::hit, main, -1);
             return;
         }
@@ -656,7 +659,7 @@ private:
             for (int i = 0; i < 4; ++i)
             {
                 Hit r = h;
-                r.stroke = Stroke::open, r.force = h.force * force[i], r.accent = h.accent && i == 0;
+                r.stroke = Stroke::open, r.force = h.force * force[i], r.accent = h.accent && i == 0, r.follow = i > 0;
                 if (i == 0)
                     voice.strike (r);
                 else
@@ -686,6 +689,7 @@ private:
             h.force = std::pow ((float) r, 0.6f * (float) j);
             h.accent = j == 0 && knob[ParamId::accents] > 0.0f;
             h.slide = false;
+            h.follow = j > 0;
             double jitter = 0.0;
             if (knob[ParamId::mutate] > 0.0f && j > 0)
                 jitter = (unit (k * 32 + j, seed() ^ 0x94d049bbu) - 0.5f) * knob[ParamId::mutate] * 0.6 * gap;
@@ -797,6 +801,7 @@ private:
         t.force.store (voice.lastStrikeForce(), std::memory_order_relaxed);
         t.accent.store (voice.lastStrikeAccented(), std::memory_order_relaxed);
         t.strikes.store (voice.strikeCount(), std::memory_order_release);
+        t.renders.store (++renders, std::memory_order_relaxed);
     }
 
     Telemetry* telemetry = nullptr;
@@ -818,6 +823,6 @@ private:
     Queued queue[queueCapacity] {};
     int queueSize = 0;
     int shownPlace = -1, shownCycle = 16;
-    uint32_t shownGeneration = 0, shownCells = 0, scopeWrite = 0, scopeZeros = 0, lightWrite = 0, lightCounter = 0;
+    uint32_t shownGeneration = 0, shownCells = 0, scopeWrite = 0, scopeZeros = 0, lightWrite = 0, lightCounter = 0, renders = 0;
 };
 } // namespace mystik

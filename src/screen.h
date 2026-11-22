@@ -141,7 +141,18 @@ public:
         }
         const bool rippling = struck && h.nowMs >= strikeAt && h.nowMs - strikeAt < 260;
         const bool glowing = light > 0.0015f || lightShown > 0.0015f;
-        animated = glowing || rippling || running || scopeLive;
+        // The audio thread's report holds while it renders: a host that stops running the plug-in (Melodee puts a silent
+        // instrument to sleep) leaves the light, the scope and the playhead as they were, not to be animated for ever.
+        const uint32_t renders = tel.renders.load (std::memory_order_relaxed);
+        if (renders != seenRenders)
+            seenRenders = renders, heardAt = h.nowMs;
+        const bool heard = h.nowMs < heardAt || h.nowMs - heardAt < 2000;
+        if (page != play) // the scope is drawn (and looked at) on PLAY only
+            scopeLive = false;
+        // The page asks for its next frames itself only while something moves: a ripple, the light, the sequencer, the
+        // scope (worked out again at the end, once this frame's scope is drawn).
+        auto moving = [&] { return rippling || (heard && (glowing || running || scopeLive)); };
+        animated = moving();
         const bool frame = whole || params || touched || h.nowMs - frameAt >= 40 || h.nowMs < frameAt;
         bool pots = false;
         for (int k = 0; k < 3; ++k)
@@ -199,6 +210,7 @@ public:
         touched = false;
         if (! rippling)
             struck = false;
+        animated = moving();
         return drew;
     }
 
@@ -425,7 +437,9 @@ private:
             r.ring (cx, cy, radius, mix (strikeAccent ? ink::pink : ink::acid, ink::bg, (int) (age * 230.0f)));
         }
         // The ring: a track, the steps of the cycle, slides as arcs inside, the step playing lit with a ray to the orb.
-        const int len = std::max (1, running && place >= 0 ? tel.cycle.load (std::memory_order_relaxed) : cycleLength());
+        // Playing, the cycle is the engine's (it follows a new Length or Rhythm at its next step, the values here at once:
+        // glyphAt reads a place past a shorter rhythm as a rest).
+        const int len = std::clamp (running && place >= 0 ? tel.cycle.load (std::memory_order_relaxed) : cycleLength(), 1, steps);
         r.ring (cx, cy, track, ink::grid);
         const Circle& unitCircle = circleFor (len);
         float px[steps], py[steps];
@@ -473,7 +487,7 @@ private:
         r.box (cx, cy - track - 10, 1, 4, ink::muted);
         // Under the ring: the step picked or playing, as words.
         char s[40];
-        const int shown = running && place >= 0 ? place : 0;
+        const int shown = running && place >= 0 ? std::min (place, len - 1) : 0;
         const Glyph g = glyphAt (shown, len);
         char note[16];
         noteName (val (ParamId::tune) + degreeSemis (g.degree, ival (ParamId::scale)), note, sizeof (note));
@@ -1087,8 +1101,8 @@ private:
     int shownPage = -1, shownPlace = -2;
     bool shownRunning = false, editing = false, first = true, touched = false, animated = false, struck = false, strikeAccent = false;
     bool scopeLive = false;
-    uint32_t seenStrikes = 0, shownGeneration = 0;
-    uint64_t strikeAt = 0, frameAt = 0;
+    uint32_t seenStrikes = 0, shownGeneration = 0, seenRenders = 0;
+    uint64_t strikeAt = 0, frameAt = 0, heardAt = 0;
     float lightShown = 0.0f, gainShown = 0.05f;
     int8_t trail[2][150][2] {};
     mutable Circle circle;

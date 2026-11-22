@@ -1,6 +1,6 @@
-// Mystik's effects, after the voice at the host's rate: Drive, Crush, a ping-pong Echo with Absorb in its loop, Space
-// (a spring-like tank), Volume and a soft ceiling. Each one costs nothing while it is off, and Echo and Space stop
-// working once their loops have gone quiet.
+// Mystik's effects, after the voice at the host's rate: Drive, Crush, a ping-pong Echo with Absorb and a DC blocker in
+// its loop, Space (a spring-like tank), Volume and a soft ceiling. Each one costs nothing while it is off, and Echo and
+// Space stop working once their loops have gone quiet.
 #pragma once
 
 #include "dsp.h"
@@ -27,7 +27,7 @@ public:
         while ((double) n < 2.6 * hostRate)
             n <<= 1;
         if (echoL.size() != n)
-            echoL.assign (n, 0.0f), echoR.assign (n, 0.0f);
+            echoL.assign (n, 0.0f), echoR.assign (n, 0.0f), echoClearAt = (uint32_t) n; // new lines: all silence
         mask = (uint32_t) n - 1;
         // The tank's lines: 37.1 and 41.7 ms (never in step), each under a power of two.
         springLength[0] = std::max (1, (int) std::lround (0.0371 * hostRate));
@@ -39,22 +39,27 @@ public:
             line.assign (m, 0.0f);
         springMask = (uint32_t) m - 1;
         dcCoef = 1.0f - 2.0f * (float) M_PI * 8.0f / rate;
+        loopHp = 1.0f - 2.0f * (float) M_PI * 20.0f / rate;
         springHp = onePoleCoeff (2.0f * (float) M_PI * 150.0f / rate);
         springLp = onePoleCoeff (2.0f * (float) M_PI * 5500.0f / rate);
         reset();
     }
 
+    // Back to silence. It may come many times at once (Melodee's All Sound Off is sent on all 16 channels), so it costs
+    // nothing when there is nothing to clear: the tank's lines are cleared only if they hold something, and the echo's
+    // (up to 2 MiB) are left to clear over the next blocks, or at once if sound comes first (see process()).
     void reset()
     {
-        std::fill (echoL.begin(), echoL.end(), 0.0f);
-        std::fill (echoR.begin(), echoR.end(), 0.0f);
-        for (auto& line : spring)
-            std::fill (line.begin(), line.end(), 0.0f);
+        if (springQuiet <= springMask) // ringing (once quiet for a line's length they are all zeros)
+            for (auto& line : spring)
+                std::fill (line.begin(), line.end(), 0.0f);
         for (int k = 0; k < 8; ++k)
             apEven[k] = apOdd[k] = v2 { 0.0f, 0.0f };
+        if (echoQuiet <= mask) // ringing: anything in the lines may be sound, all of it to clear
+            echoClearAt = 0;
         write = springWrite = 0;
         echoQuiet = springQuiet = 1u << 30;
-        absorbL = absorbR = 0.0f;
+        absorbL = absorbR = hpInL = hpInR = hpOutL = hpOutR = 0.0f;
         hpState = lpState = v2 { 0.0f, 0.0f };
         dcIn = dcOut = 0.0f;
         held = 0.0f, holdPhase = 1.0f;
@@ -84,6 +89,11 @@ public:
     // In: the voice in `left` (`silentIn`: all zeros). Out: both sides.
     void process (float* left, float* right, uint32_t frames, bool silentIn)
     {
+        // What an ended tail (or a reset) left in the echo's lines goes a share at a time: 64 floats a side a frame, the
+        // whole line in about 43 ms at any rate. Nothing reads them before they are all zeros (echo() clears the rest
+        // at once if sound comes first).
+        if (echoQuiet > mask && echoClearAt <= mask)
+            clearEcho ((uint32_t) std::min<uint64_t> ((uint64_t) mask + 1, (uint64_t) echoClearAt + 64u * (uint64_t) frames));
         // Nothing in, nothing left ringing (and no Crush, whose hold keeps time): silence at no cost.
         if (silentIn && dcOut == 0.0f && dcIn == 0.0f && echoQuiet > mask && springQuiet > springMask && knobs.crush <= 0.0f)
         {
@@ -176,6 +186,14 @@ private:
             delay = echoTarget;
     }
 
+    // The echo's lines from echoClearAt up to `end` cleared.
+    void clearEcho (uint32_t end)
+    {
+        std::fill (echoL.begin() + echoClearAt, echoL.begin() + end, 0.0f);
+        std::fill (echoR.begin() + echoClearAt, echoR.begin() + end, 0.0f);
+        echoClearAt = end;
+    }
+
     void echo (float* left, float* right, uint32_t frames)
     {
         const float mix = knobs.echo * knobs.echo;
@@ -185,6 +203,10 @@ private:
             // Quiet in and out for a whole line's length: everything in it is silence; stop until sound comes.
             if (x == 0.0f && echoQuiet > mask)
                 continue;
+            // Sound before the last tail was all cleared away (process()): the rest goes now, so the lines are
+            // exactly silent when it starts, as if they had been cleared when the tail ended.
+            if (echoQuiet > mask && echoClearAt <= mask)
+                clearEcho (mask + 1);
             delay += (echoTarget - delay) * 0.0005f; // a tape's glide to a new time
             const float back = (float) write - delay;
             const float floorBack = std::floor (back);
@@ -194,19 +216,29 @@ private:
             const float tr = echoR[at] + (echoR[(at + 1) & mask] - echoR[at]) * frac;
             absorbL += (tl - absorbL) * absorbCoef;
             absorbR += (tr - absorbR) * absorbCoef;
+            // A 20 Hz high-pass in the loop (one pole, under unity at every frequency): DC (a hit's offset, the soft
+            // clip's) and sub-bass die away round it at any Repeats, where they built up for ever over 95 %.
+            const float hpL = loopHp * (hpOutL + absorbL - hpInL), hpR = loopHp * (hpOutR + absorbR - hpInR);
+            hpInL = absorbL, hpInR = absorbR, hpOutL = hpL, hpOutR = hpR;
             // Ping-pong: the dry sound enters on the left, each side feeds the other.
-            echoL[write] = softClip (x + feedback * absorbR);
-            echoR[write] = softClip (feedback * absorbL);
+            const uint32_t into = write;
+            echoL[into] = softClip (x + feedback * hpR);
+            echoR[into] = softClip (feedback * hpL);
             write = (write + 1) & mask;
             left[i] = x + mix * tl;
             right[i] = x + mix * tr;
             echoQuiet = std::fmax (std::fabs (x), std::fmax (std::fabs (tl), std::fabs (tr))) < 1e-6f ? echoQuiet + 1 : 0;
-            if (echoQuiet > mask)
+            if (echoQuiet <= mask)
             {
-                std::fill (echoL.begin(), echoL.end(), 0.0f); // exactly silent from here
-                std::fill (echoR.begin(), echoR.end(), 0.0f);
-                absorbL = absorbR = 0.0f;
+                echoClearAt = 0; // ringing: anything in the lines may be sound
+                continue;
             }
+            // Quiet for a whole line's length: exactly silent from here. The tail just ended: what it left in the lines
+            // (all under -120 dB) is cleared over the next blocks (echoClearAt is 0). Quiet before this sample too: the
+            // lines were all zeros, so only this sample's own write is undone.
+            if (echoQuiet != mask + 1)
+                echoL[into] = echoR[into] = 0.0f;
+            absorbL = absorbR = hpInL = hpInR = hpOutL = hpOutR = 0.0f;
         }
     }
 
@@ -236,9 +268,10 @@ private:
                 s = coefficient * v + old;
                 slot[k] = v;
             }
-            spring[0][springWrite] = s[0];
-            spring[1][springWrite] = s[1];
-            const v2 tap = { spring[0][(springWrite - (uint32_t) springLength[0]) & springMask], spring[1][(springWrite - (uint32_t) springLength[1]) & springMask] };
+            const uint32_t at = springWrite;
+            spring[0][at] = s[0];
+            spring[1][at] = s[1];
+            const v2 tap = { spring[0][(at - (uint32_t) springLength[0]) & springMask], spring[1][(at - (uint32_t) springLength[1]) & springMask] };
             lpState += (tap - lpState) * lp;
             springWrite = (springWrite + 1) & springMask;
             left[i] = dryL + mix * tap[0];
@@ -248,8 +281,14 @@ private:
             springQuiet = loud < 1e-6f ? springQuiet + 1 : 0;
             if (springQuiet > springMask)
             {
-                for (auto& line : spring)
-                    std::fill (line.begin(), line.end(), 0.0f);
+                // Exactly silent from here. The tail just ended: the lines are cleared (8 to 16 KiB). Quiet before this
+                // sample too (the echo's last whispers keep coming in for seconds): the lines were all zeros and only
+                // this sample's own write is undone, not the whole tank again each sample.
+                if (springQuiet == springMask + 1)
+                    for (auto& line : spring)
+                        std::fill (line.begin(), line.end(), 0.0f);
+                else
+                    spring[0][at] = spring[1][at] = 0.0f;
                 for (int k = 0; k < 8; ++k)
                     apEven[k] = apOdd[k] = v2 { 0.0f, 0.0f };
                 hpState = lpState = v2 { 0.0f, 0.0f };
@@ -266,8 +305,11 @@ private:
     float dcCoef = 0.999f, dcIn = 0, dcOut = 0;
     // Echo.
     std::vector<float> echoL, echoR;
-    uint32_t mask = 0, write = 0, echoQuiet = 1u << 30;
+    // echoClearAt: the lines are zeros below it (all of them at mask + 1). While the echo rings it is 0; once it has
+    // gone quiet (echoQuiet > mask) the rest is the old tail's to clear.
+    uint32_t mask = 0, write = 0, echoQuiet = 1u << 30, echoClearAt = 0;
     float delay = -1, echoTarget = 1, feedback = 0, absorbCoef = 1, absorbL = 0, absorbR = 0;
+    float loopHp = 0.997f, hpInL = 0, hpInR = 0, hpOutL = 0, hpOutR = 0; // the loop's 20 Hz high-pass
     // Space.
     std::vector<float> spring[2];
     int springLength[2] { 1, 1 };

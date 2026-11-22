@@ -112,8 +112,10 @@ number, Seed and a salt: the same place in the song plays the same way. Regenera
 
 - Drive: `tanh(x * (1 + 7 d^2))` made up.
 - Crush: sample-and-hold rate (to about 1.5 kHz) and bits (to 3) from one knob.
-- Echo: ping-pong, Echo Time synced to the tempo, Repeats up to 1.05 with Absorb (a low-pass) and a soft clip in
-  the loop (exactly linear below 0.75, so repeats are not squeezed).
+- Echo: ping-pong, Echo Time synced to the tempo, Repeats up to 1.05 with Absorb (a low-pass), a 20 Hz one-pole
+  high-pass (under unity everywhere, so DC and sub-bass cannot build up round a loop gain over 1) and a soft clip in
+  the loop (exactly linear below 0.75, so repeats are not squeezed). Once quiet for a line's length its lines are
+  cleared a share a block, and a reset (All Sound Off) clears nothing that is already silent.
 - Space: a spring-ish tank: per side a feedback delay through a chain of stretched allpasses (dispersion: the
   chirp), Space Decay sets the feedback.
 

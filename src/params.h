@@ -12,7 +12,7 @@
 #include <strings.h>
 
 #ifndef MYSTIK_VERSION
-#define MYSTIK_VERSION "0.2.1"
+#define MYSTIK_VERSION "0.2.2"
 #endif
 
 namespace mystik
@@ -154,9 +154,12 @@ inline const char* const rhythmChoices[] = { "Tresillo", "Cinquillo", "Son Clave
 static_assert (sizeof (rhythms) / sizeof (rhythms[0]) == sizeof (rhythmChoices) / sizeof (rhythmChoices[0]), "a rhythm a name");
 constexpr int rhythmCount = (int) (sizeof (rhythms) / sizeof (rhythms[0]));
 inline int rhythmLength (int r) { return (int) std::strlen (rhythms[r].places); }
-// The stroke at a timeline's place, or -1 for a rest.
+// The stroke at a timeline's place, or -1 for a rest. A place past the timeline's end is a rest too (the page may ask for
+// the places of a longer cycle it last heard of from the engine).
 inline int rhythmStroke (int r, int place)
 {
+    if (r < 0 || r >= rhythmCount || place < 0 || place >= rhythmLength (r))
+        return -1;
     switch (rhythms[r].places[place])
     {
         case 'B': return Stroke::bass;

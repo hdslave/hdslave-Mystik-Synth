@@ -85,6 +85,8 @@ public:
         clockedLoud = false;
         queueSize = 0;
         held = 0;
+        padStep = -1;
+        padSounding = padHitsQueued = false;
         transpose = 0.0f;
         st = SeqState {};
         lightCounter = 0;
@@ -128,10 +130,24 @@ public:
         return true;
     }
 
-    // Keys. With the sequencer on and the host playing, a key transposes the pattern (latched, from C3); otherwise keys
-    // play the drum as Notes says.
+    // Keys. With the sequencer on (the host playing or stopped), keys 36-51 are its steps 1-16: pads 1-16 on a
+    // plug-in track at hdslaveOS's defaults. Each plays its step once, as Notes: Steps plays it (its pitch with the
+    // scale and the transposition, its stroke and accent; a rest, or a step Chance or Density would drop, plays too),
+    // and moves neither the sequence nor the transposition. The other keys: with the sequencer on and the host
+    // playing, a key transposes the pattern (latched, from C3); otherwise keys play the drum as Notes says.
     void noteOn (int key, float velocity)
     {
+        if (isPad (key))
+        {
+            // Played when its frame's audio starts, after whatever else came on that frame (knobs, the transport,
+            // keys): of two pads on one frame the louder plays, once (on a tie the later), and a step the sequence
+            // plays on that frame wins.
+            forget (key);
+            remember (key);
+            if (padStep < 0 || velocity >= padVelocity)
+                padStep = key - firstPad, padVelocity = velocity;
+            return;
+        }
         applyKnobs();
         if (seqOn() && playing)
         {
@@ -139,13 +155,8 @@ public:
             return;
         }
         // The same key again without a note off between (a sequencer's repeated note): it starts again, not a slide.
-        for (int i = 0; i < held; ++i)
-            if (heldKeys[i] == key)
-            {
-                for (int j = i; j + 1 < held; ++j)
-                    heldKeys[j] = heldKeys[j + 1];
-                --held, --i;
-            }
+        forget (key);
+        padSounding = false;
         const int mode = (int) knob[ParamId::notes];
         Hit h;
         h.force = velocity;
@@ -160,45 +171,40 @@ public:
             strikeWithStroke (h);
         }
         else if (mode == 2) // Steps: 36-51 play steps 1-16
-        {
-            const int s = ((key - 36) % steps + steps) % steps;
-            Decision d = stepDecision (s);
-            d.force *= velocity;
-            d.accent = d.accent || h.accent;
-            d.slide = false;
-            playDecision (d, -1);
-        }
-        else // Pitch: the key from C3, overlapping keys slide
+            playStep (((key - 36) % steps + steps) % steps, velocity);
+        else // Pitch: the key from C3, overlapping keys slide (a held step pad is no key of this keyboard)
         {
             h.stroke = Stroke::open;
             h.semis = (float) (key - 60);
-            h.slide = held > 0;
+            h.slide = newestKey() >= 0;
             voice.strike (h);
         }
-        if (held < (int) (sizeof (heldKeys) / sizeof (heldKeys[0])))
-            heldKeys[held++] = key;
+        remember (key);
     }
 
     void noteOff (int key)
     {
-        for (int i = 0; i < held; ++i)
-            if (heldKeys[i] == key || key < 0)
-            {
-                for (int j = i; j + 1 < held; ++j)
-                    heldKeys[j] = heldKeys[j + 1];
-                --held, --i;
-            }
-        if (held > 0 && (int) knob[ParamId::notes] == 0 && ! (seqOn() && playing))
+        const bool pad = isPad (key);
+        forget (key);
+        if (! (seqOn() && playing))
         {
-            // Back to the key still held, gliding.
-            Hit h;
-            h.slide = true;
-            h.hold = knob[ParamId::hold] > 0.0f;
-            h.semis = (float) (heldKeys[held - 1] - 60);
-            voice.strike (h);
+            const int back = held > 0 && (int) knob[ParamId::notes] == 0 && ! pad ? newestKey() : -1;
+            if (back >= 0)
+            {
+                // Back to the key still held, gliding.
+                Hit h;
+                h.slide = true;
+                h.hold = knob[ParamId::hold] > 0.0f;
+                h.semis = (float) (back - 60);
+                voice.strike (h);
+            }
+            else if (held == 0)
+                voice.release();
         }
-        else if (held == 0 && ! (seqOn() && playing))
-            voice.release();
+        else if (held == 0 && padSounding)
+            voice.release(); // a step pad let go before the sequence struck again: its Hold ends with it
+        if (held == 0)
+            padSounding = false;
     }
 
     // The page plays a step (its pitch, trig and stroke; a rest plays as a hit). No key is held to end it: its gate ends
@@ -206,14 +212,15 @@ public:
     void audition (int s)
     {
         applyKnobs();
+        padSounding = false;
         Decision d = stepDecision (s);
         d.slide = false;
         playDecision (d, -1);
         enqueue (now + (uint64_t) std::max (1.0, knob[ParamId::gate] * rate * 0.125), Queued::release, Hit {}, -1);
     }
 
-    void choke() { voice.choke(), fx.cut(), held = 0, queueSize = 0; }
-    void allNotesOff() { held = 0, voice.release(); }
+    void choke() { voice.choke(), fx.cut(), held = 0, queueSize = 0, padStep = -1, padSounding = false; }
+    void allNotesOff() { held = 0, padSounding = false, voice.release(); }
     void allSoundOff() { choke(), fx.silence(); }
     void wheel (float bend, float mod) { voice.wheel (bend, mod); }
 
@@ -279,6 +286,11 @@ public:
                 if (untilStep < (double) run)
                     run = (uint32_t) untilStep;
             }
+            if (padStep >= 0) // a step pad struck on this frame: played after the frame's gate ends and its step
+            {
+                playPad();
+                continue;
+            }
             silentRun &= voice.run (out, run);
             publishScope (out, run);
             now += run;
@@ -336,6 +348,62 @@ private:
             fx.set (k);
             fxDirty = false;
         }
+    }
+
+    // --- Keys and step pads ----------------------------------------------------------------------------------------
+    static constexpr int firstPad = 36; // pad 1 (A01) at hdslaveOS's defaults; pads 1-16 are keys 36-51
+    static constexpr int64_t padClock = -2; // marks a step pad's further hits in the queue
+    bool isPad (int key) const { return seqOn() && key >= firstPad && key < firstPad + steps; }
+
+    void remember (int key)
+    {
+        if (held < (int) (sizeof (heldKeys) / sizeof (heldKeys[0])))
+            heldKeys[held++] = key;
+    }
+    void forget (int key) // key < 0: every key
+    {
+        for (int i = 0; i < held; ++i)
+            if (heldKeys[i] == key || key < 0)
+            {
+                for (int j = i; j + 1 < held; ++j)
+                    heldKeys[j] = heldKeys[j + 1];
+                --held, --i;
+            }
+    }
+    // The newest key held that is not a step pad (Pitch's keyboard), or -1.
+    int newestKey() const
+    {
+        for (int i = held - 1; i >= 0; --i)
+            if (! isPad (heldKeys[i]))
+                return heldKeys[i];
+        return -1;
+    }
+
+    // Step s as a key plays it (Notes: Steps, a step pad): its pitch, stroke and trig's accent, an accent from
+    // velocity 100 too, never a slide, whatever the sequence would do with it now.
+    void playStep (int s, float velocity)
+    {
+        Decision d = stepDecision (s);
+        d.force *= velocity;
+        d.accent = d.accent || velocity >= 100.0f / 127.0f - 1e-6f;
+        d.slide = false;
+        playDecision (d, -1);
+    }
+    // The step pad struck on this frame, if any, played now (render calls it when the frame's audio starts).
+    void playPad()
+    {
+        if (padStep < 0)
+            return;
+        const int s = padStep;
+        padStep = -1;
+        applyKnobs();
+        padPlaying = true;
+        playStep (s, padVelocity);
+        padPlaying = false;
+        // Its key let go on the frame it was struck (or every key let go): its Hold ends now, as a key's would.
+        padSounding = held > 0;
+        if (held == 0)
+            voice.release();
     }
 
     // --- Clock (Anvil's) -------------------------------------------------------------------------------------------
@@ -611,6 +679,12 @@ private:
         if (! d.play)
             return;
         clockedLoud = true;
+        // The step takes the drum from a step pad: one struck on this frame gives way (a step plays at full force, so
+        // it is never the softer, and it comes later), and a pad's flam or roll still to come is dropped.
+        padStep = -1;
+        padSounding = false;
+        if (padHitsQueued)
+            dropPadHits();
         playDecision (d, k);
     }
 
@@ -647,7 +721,7 @@ private:
             voice.strike (grace);
             Hit main = h;
             main.stroke = Stroke::open, main.follow = true;
-            enqueue (now + (uint64_t) std::lround (0.022 * rate), Queued::hit, main, -1);
+            enqueue (now + (uint64_t) std::lround (0.022 * rate), Queued::hit, main, padPlaying ? padClock : -1);
             return;
         }
         if (h.stroke == Stroke::roll && ! h.slide)
@@ -663,7 +737,7 @@ private:
                 if (i == 0)
                     voice.strike (r);
                 else
-                    enqueue (now + (uint64_t) std::lround (at), Queued::hit, r, -1);
+                    enqueue (now + (uint64_t) std::lround (at), Queued::hit, r, padPlaying ? padClock : -1);
                 at += gap, gap *= 0.7;
             }
             return;
@@ -715,6 +789,7 @@ private:
     {
         if (queueSize == queueCapacity)
             return;
+        padHitsQueued |= k == padClock;
         int i = queueSize++;
         while (i > 0 && queue[i - 1].at > at)
             queue[i] = queue[i - 1], --i;
@@ -739,6 +814,8 @@ private:
             if (next.play && next.slide && mode() != SeqMode::bounce)
                 return;
         }
+        if (padSounding && held > 0)
+            return; // a step pad struck since and still held: its Hold ends with its note
         if (held == 0 || (seqOn() && playing))
             voice.release();
     }
@@ -751,7 +828,20 @@ private:
                     queue[j] = queue[j + 1];
                 --queueSize, --i;
             }
-        voice.release();
+        if (! (padSounding && held > 0))
+            voice.release();
+    }
+    // A step pad's flam or roll hits still to come, dropped when the sequence strikes.
+    void dropPadHits()
+    {
+        for (int i = 0; i < queueSize; ++i)
+            if (queue[i].clock == padClock)
+            {
+                for (int j = i; j + 1 < queueSize; ++j)
+                    queue[j] = queue[j + 1];
+                --queueSize, --i;
+            }
+        padHitsQueued = false;
     }
 
     // --- For the screen --------------------------------------------------------------------------------------------
@@ -819,6 +909,10 @@ private:
     float transpose = 0.0f;
     int heldKeys[16] {};
     int held = 0;
+    int padStep = -1;       // the step pad struck on this frame, still to play (-1: none)
+    float padVelocity = 0.0f;
+    bool padSounding = false; // the drum plays a step pad's strike, not the sequence's: the pad's note off ends Hold
+    bool padPlaying = false, padHitsQueued = false;
     static constexpr int queueCapacity = 48;
     Queued queue[queueCapacity] {};
     int queueSize = 0;

@@ -953,6 +953,362 @@ void testHold()
     }
 }
 
+// --- Step pads -----------------------------------------------------------------------------------------------------
+// With the sequencer on, keys 36-51 (pads 1-16 on a plug-in track at hdslaveOS's defaults) play steps 1-16, the host
+// playing or stopped, as Notes: Steps plays them, without moving the sequence or the transposition. Other keys do what
+// they did before; with the sequencer off, Notes decides.
+struct PadEvent
+{
+    uint64_t frame;
+    enum Kind { on, off, midi, param, choke } kind;
+    int key;              // a note's key, a MIDI status
+    double value = 0.9;   // a note's velocity, a MIDI message's data bytes as 256 * first + second, a parameter's value
+    std::string name {};  // the parameter's
+};
+PadEvent padOn (uint64_t f, int key, double v = 0.9) { return { f, PadEvent::on, key, v }; }
+PadEvent padOff (uint64_t f, int key) { return { f, PadEvent::off, key, 0.0 }; }
+PadEvent midiEvent (uint64_t f, int status, int a, int b) { return { f, PadEvent::midi, status, (double) (a * 256 + b) }; }
+PadEvent paramEvent (uint64_t f, const std::string& name, double v) { return { f, PadEvent::param, 0, v, name }; }
+
+// Renders the events at their frames (in list order on a frame); left and right one after the other.
+std::vector<float> perform (Instance& a, uint32_t frames, const std::vector<PadEvent>& list, const std::function<Transport (uint64_t)>& transport,
+                            uint32_t block = 128, bool both = true)
+{
+    std::vector<float> l, r;
+    a.render (frames, block, l, r, transport, [&] (uint64_t at, uint32_t n, Events& e) {
+        for (const auto& v : list)
+            if (v.frame >= at && v.frame < at + n)
+            {
+                const uint32_t t = (uint32_t) (v.frame - at);
+                if (v.kind == PadEvent::on || v.kind == PadEvent::off || v.kind == PadEvent::choke)
+                    e.note (t, v.kind == PadEvent::on ? CLAP_EVENT_NOTE_ON : (v.kind == PadEvent::off ? CLAP_EVENT_NOTE_OFF : CLAP_EVENT_NOTE_CHOKE),
+                            (int16_t) v.key, v.value);
+                else if (v.kind == PadEvent::midi)
+                    e.midi (t, (uint8_t) v.key, (uint8_t) ((int) v.value >> 8), (uint8_t) ((int) v.value & 0xff));
+                else
+                    e.param (t, a.id (v.name), v.value);
+            }
+    });
+    if (both)
+        l.insert (l.end(), r.begin(), r.end());
+    return l;
+}
+std::function<Transport (uint64_t)> stoppedAll() { return [] (uint64_t) { return stopped(); }; }
+std::function<Transport (uint64_t)> playingAll (double bpm = 120.0, double from = 0.0) { return [=] (uint64_t at) { return playingFrom (from, bpm, 48000.0, at); }; }
+
+// A sine at the drum's pitch through a gate held open: its pitch can be read at any time. Steps: all Hits, Open
+// strokes, these degrees of the chromatic scale from C2 (130.81 Hz); Rate 1/4 (24,000 frames a step at 120 BPM).
+constexpr int padDegree[16] = { 0, 2, 4, 5, 7, 9, 11, 12, -1, -3, -5, -7, 3, 6, 8, 10 };
+double hzOf (double semis) { return 130.81 * std::pow (2.0, semis / 12.0); }
+std::vector<std::pair<std::string, double>> dronePatch (Instance& a)
+{
+    std::vector<std::pair<std::string, double>> v { { "Source", 0.0 }, { "FM Index", 0.0 }, { "Timbre", 0.0 }, { "Bloom", 0.0 }, { "Drift", 0.0 },
+                                                    { "Bend", 0.0 }, { "Echo", 0.0 }, { "Space", 0.0 }, { "Open", 1.0 }, { "Tune", 0.0 },
+                                                    { "Human", 0.0 }, { "Scale", a.valueOf ("Scale", "Chromatic") }, { "Swing", 0.5 },
+                                                    { "Mutate", 0.0 }, { "Density", 0.5 }, { "Hold", 0.0 }, { "Rate", a.valueOf ("Rate", "1/4") } };
+    for (int s = 1; s <= 16; ++s)
+    {
+        v.push_back ({ "Trig " + std::to_string (s), 1.0 });
+        v.push_back ({ "Stroke " + std::to_string (s), 0.0 });
+        v.push_back ({ "Chance " + std::to_string (s), 1.0 });
+        v.push_back ({ "Pitch " + std::to_string (s), (double) padDegree[s - 1] });
+    }
+    return v;
+}
+#define CHECK_PITCH(out, from, to, semis) CHECK_NEAR (pitchOf (out, (size_t) (from), (size_t) (to), 48000.0), hzOf (semis), hzOf (semis) * 0.012)
+
+void testPads()
+{
+    const bool debug = std::getenv ("MYSTIK_DEBUG") != nullptr;
+    // Each pad, stopped, plays its step exactly as Notes: Steps plays that key with the sequencer off: pitch, stroke
+    // (the default steps' strokes, and a flam and two rolls), trig's accent, a hard hit's accent, Human.
+    const std::vector<std::pair<std::string, double>> strokes { { "Stroke 2", 5.0 }, { "Stroke 6", 6.0 }, { "Stroke 10", 6.0 } };
+    for (int s = 0; s < 16; ++s)
+    {
+        const double v = s % 2 ? 1.0 : 0.6;
+        const std::vector<PadEvent> list { padOn (100, 36 + s, v), padOff (6000, 36 + s) };
+        Instance a, b;
+        a.setup (strokes);
+        b.setup (strokes);
+        b.setup ({ { "Sequencer", 0.0 }, { "Notes", b.valueOf ("Notes", "Steps") } });
+        const auto pad = perform (a, 12000, list, stoppedAll());
+        CHECK (pad == perform (b, 12000, list, stoppedAll()));
+        CHECK (peakOf (pad) > 1e-3);
+    }
+    // In every mode it plays the step's own Pitch, Trig and Stroke (what Notes: Steps plays), whatever the mode does
+    // with them; MIDI notes (hdslaveOS's dialect) as CLAP notes.
+    for (const char* mode : { "Euclid", "Turing", "Automaton", "Bounce", "Rhythm" })
+    {
+        Instance a, b;
+        a.setup ({ { "Seq Mode", a.valueOf ("Seq Mode", mode) } });
+        b.setup ({ { "Seq Mode", b.valueOf ("Seq Mode", mode) }, { "Sequencer", 0.0 }, { "Notes", b.valueOf ("Notes", "Steps") } });
+        const std::vector<PadEvent> list { midiEvent (100, 0x90, 47, 100), midiEvent (3000, 0x80, 47, 0), padOn (9000, 40, 0.5), padOff (12000, 40) };
+        CHECK (perform (a, 24000, list, stoppedAll()) == perform (b, 24000, list, stoppedAll()));
+    }
+    // As the sequence plays it: an accented step struck at full velocity is the sequence's first step (Rotate) to the
+    // sample, at 1/16 (a pad's roll spans what a 1/16 step's does), for each stroke.
+    for (int stroke = 0; stroke < 8; ++stroke)
+    {
+        const int s = (stroke * 5 + 3) % 16;
+        const std::vector<std::pair<std::string, double>> v { { "Trig " + std::to_string (s + 1), 2.0 }, { "Stroke " + std::to_string (s + 1), (double) stroke },
+                                                              { "Chance " + std::to_string (s + 1), 1.0 }, { "Rotate", (double) s }, { "Rate", 5.0 },
+                                                              { "Swing", 0.5 }, { "Hold", 0.0 } };
+        Instance a, b;
+        a.setup (v);
+        b.setup (v);
+        const auto pad = perform (a, 5900, { padOn (0, 36 + s, 1.0) }, stoppedAll());
+        const auto step = perform (b, 5900, {}, playingAll());
+        CHECK (pad == step);
+    }
+    // Stopped, each pad sets its step's pitch; Play then starts from step 1, untransposed.
+    {
+        Instance a;
+        a.setup (dronePatch (a));
+        std::vector<PadEvent> list;
+        for (int s = 0; s < 16; ++s)
+            list.push_back (padOn ((uint64_t) s * 12000 + 100, 36 + s, s % 3 ? 0.5 : 0.95)), list.push_back (padOff ((uint64_t) s * 12000 + 6000, 36 + s));
+        const uint64_t play = 16 * 12000;
+        const auto out = perform (a, (uint32_t) play + 48000, list, [&] (uint64_t at) { return at < play ? stopped() : playingFrom (0.0, 120.0, 48000.0, at - play); }, 128, false);
+        for (int s = 0; s < 16; ++s)
+            CHECK_PITCH (out, s * 12000 + 2000, s * 12000 + 11500, padDegree[s]);
+        CHECK_PITCH (out, play + 2000, play + 22000, padDegree[0]);
+        CHECK_PITCH (out, play + 26000, play + 46000, padDegree[1]);
+    }
+    // Playing: a pad plays its step until the sequence's next step, which is the one it would have played anyway (the
+    // play head does not move, the transposition stays).
+    {
+        Instance a;
+        a.setup (dronePatch (a));
+        const auto out = perform (a, 24000 * 8, { padOn (36000, 44), padOff (40000, 44), padOn (84000, 51, 1.0), padOff (90000, 51) }, playingAll(), 128, false);
+        CHECK_PITCH (out, 26000, 35000, padDegree[1]);
+        CHECK_PITCH (out, 38000, 47000, padDegree[8]);
+        CHECK_PITCH (out, 50000, 71000, padDegree[2]);
+        CHECK_PITCH (out, 74000, 83000, padDegree[3]);
+        CHECK_PITCH (out, 86000, 95000, padDegree[15]);
+        CHECK_PITCH (out, 98000, 119000, padDegree[4]);
+        CHECK_PITCH (out, 146000, 167000, padDegree[6]);
+    }
+    // Generative modes too: Turing's register moves on as it would have (each step's pitch as without the pads).
+    {
+        auto turing = [] (bool pads) {
+            Instance a;
+            auto v = dronePatch (a);
+            v.push_back ({ "Seq Mode", a.valueOf ("Seq Mode", "Turing") });
+            v.push_back ({ "Density", 1.0 });
+            v.push_back ({ "Mutate", 0.35 });
+            v.push_back ({ "Range", 1.0 });
+            v.push_back ({ "Glide", 0.0 }); // its slides land within 5 ms
+            a.setup (v);
+            std::vector<PadEvent> list;
+            if (pads)
+                for (int k : { 1, 4, 7 }) list.push_back (padOn ((uint64_t) k * 24000 + 12000, 36 + k * 2)), list.push_back (padOff ((uint64_t) k * 24000 + 13000, 36 + k * 2));
+            return perform (a, 24000 * 10, list, playingAll(), 128, false);
+        };
+        const auto with = turing (true), without = turing (false);
+        int differ = 0;
+        for (int k = 0; k < 10; ++k)
+        {
+            const double p = pitchOf (with, (size_t) k * 24000 + 2000, (size_t) k * 24000 + 11500, 48000.0);
+            const double q = pitchOf (without, (size_t) k * 24000 + 2000, (size_t) k * 24000 + 11500, 48000.0);
+            CHECK_NEAR (p, q, q * 0.005);
+            differ += std::fabs (p - q) > q * 0.005;
+        }
+        CHECK (differ == 0);
+    }
+    // Other keys still transpose while it plays (35 and 52, either side of the pads, too); a pad plays its step with
+    // the transposition and leaves it as it was.
+    {
+        Instance a;
+        a.setup (dronePatch (a));
+        const auto out = perform (a, 24000 * 6, { padOn (30000, 64), padOff (31000, 64), padOn (54000, 35), padOff (55000, 35), padOn (78000, 52),
+                                                  padOff (79000, 52), padOn (102000, 36), padOff (103000, 36) }, playingAll(), 128, false);
+        CHECK_PITCH (out, 50000, 71000, padDegree[2] + 4);
+        CHECK_PITCH (out, 74000, 95000, padDegree[3] - 25);
+        CHECK_PITCH (out, 98000, 101500, padDegree[4] - 8);
+        CHECK_PITCH (out, 104000, 119000, padDegree[0] - 8);
+        CHECK_PITCH (out, 122000, 143000, padDegree[5] - 8);
+    }
+    // Stopped, the other keys play the drum as Notes says (Pitch: from C3).
+    {
+        Instance a;
+        a.setup (dronePatch (a));
+        const auto out = perform (a, 36000, { padOn (100, 64), padOff (6000, 64), padOn (12000, 53), padOff (18000, 53), padOn (24000, 35), padOff (30000, 35) },
+                                  stoppedAll(), 128, false);
+        CHECK_PITCH (out, 2000, 11500, 4);
+        CHECK_PITCH (out, 14000, 23500, -7);
+        CHECK_PITCH (out, 26000, 35500, -25);
+    }
+    // Sequencer off: keys 36-51 are a chromatic keyboard again, stopped or playing; switched on, the pads are steps.
+    for (bool playing : { false, true })
+    {
+        Instance a;
+        auto v = dronePatch (a);
+        v.push_back ({ "Sequencer", 0.0 });
+        a.setup (v);
+        const auto out = perform (a, 12000 * 6, { padOn (100, 48), padOff (6000, 48), padOn (12000, 51), padOff (18000, 51), padOn (24000, 44),
+                                                  padOff (30000, 44), paramEvent (36000, "Sequencer", 1.0), padOn (36000, 44), padOff (42000, 44),
+                                                  paramEvent (48000, "Sequencer", 0.0), padOn (48000, 40), padOff (54000, 40),
+                                                  paramEvent (60000, "Sequencer", 1.0), padOn (60000, 40), padOff (66000, 40) },
+                                  playing ? playingAll() : stoppedAll(), 128, false);
+        CHECK_PITCH (out, 2000, 11500, -12);
+        CHECK_PITCH (out, 14000, 23500, -9);
+        CHECK_PITCH (out, 26000, 35500, -16);
+        CHECK_PITCH (out, 38000, 47500, padDegree[8]);
+        CHECK_PITCH (out, 50000, 59500, -20);
+        CHECK_PITCH (out, 62000, 71500, padDegree[4]);
+    }
+    // Two pads on one frame: the louder plays, once (Human would show a second strike); on a tie the later. Stopped and
+    // playing.
+    for (bool playing : { false, true })
+    {
+        const uint64_t at = playing ? 30500 : 100;
+        auto run = [&] (std::vector<PadEvent> list) {
+            Instance a;
+            for (auto& e : std::vector<PadEvent> (list)) if (e.kind == PadEvent::on) list.push_back (padOff (at + 3000, e.key));
+            return perform (a, 48000, list, playing ? playingAll() : stoppedAll());
+        };
+        const auto louder = run ({ padOn (at, 47, 0.9) });
+        CHECK (run ({ padOn (at, 40, 0.5), padOn (at, 47, 0.9) }) == louder);
+        CHECK (run ({ padOn (at, 47, 0.9), padOn (at, 40, 0.5) }) == louder);
+        CHECK (run ({ padOn (at, 40, 0.7), padOn (at, 47, 0.7) }) == run ({ padOn (at, 47, 0.7) }));
+        CHECK (run ({ padOn (at, 47, 0.7), padOn (at, 40, 0.7) }) == run ({ padOn (at, 40, 0.7) }));
+        CHECK (run ({ padOn (at, 40, 0.5), padOn (at, 47, 0.9) }) != run ({ padOn (at, 40, 0.5) }));
+    }
+    // On, on, off of one pad (a re-pressed pad): a new strike, not a second voice or a slide, and its Hold ends with the
+    // one note off; stopped and playing. On one frame: the louder of the two once.
+    {
+        const std::vector<std::pair<std::string, double>> dry { { "Echo", 0.0 }, { "Space", 0.0 }, { "Hold", 0.6 }, { "Decay", 0.0 }, { "Ring", 0.0 } };
+        for (bool playing : { false, true })
+        {
+            auto run = [&] (const std::vector<PadEvent>& list, bool steps = false) {
+                Instance a;
+                a.setup (dry);
+                if (steps)
+                    a.setup ({ { "Sequencer", 0.0 }, { "Notes", a.valueOf ("Notes", "Steps") } });
+                return perform (a, 48000 * 3, list, playing ? playingAll() : stoppedAll());
+            };
+            const uint64_t t = playing ? 3000 : 0;
+            const auto again = run ({ padOn (t, 36), padOn (t + 12000, 36, 0.8), padOff (t + 24000, 36) });
+            CHECK (again == run ({ padOn (t, 36), padOff (t + 12000, 36), padOn (t + 12000, 36, 0.8), padOff (t + 24000, 36) }));
+            if (! playing)
+            {
+                CHECK (again == run ({ padOn (t, 36), padOn (t + 12000, 36, 0.8), padOff (t + 24000, 36) }, true));
+                CHECK (peakOf (again, 12000, 24000) > 1e-3); // held, the gate stays lit
+                CHECK (peakOf (again, 48000 * 2, 48000 * 3) < 1e-5);
+            }
+            const auto once = run ({ padOn (t + 100, 37, 0.6), padOn (t + 100, 37, 0.9), padOff (t + 100, 37) });
+            CHECK (once == run ({ padOn (t + 100, 37, 0.9), padOff (t + 100, 37) }));
+            if (! playing)
+                CHECK (peakOf (once, 0, 4800) > 1e-3 && peakOf (once, 48000 * 2, 48000 * 3) < 1e-5);
+        }
+    }
+    // A pad on Play's frame: the sequence's first step plays on that frame and wins (once); when the step rests, the pad
+    // plays, and the sequence goes on from its second step. In MIDI too (hdslaveOS sends every MIDI event at frame 0).
+    {
+        Instance a, b, c;
+        const auto alone = perform (b, 48000, {}, playingAll());
+        CHECK (perform (a, 48000, { padOn (0, 44), padOff (3000, 44) }, playingAll()) == alone);
+        CHECK (perform (c, 48000, { midiEvent (0, 0x90, 44, 127), midiEvent (3000, 0x80, 44, 0) }, playingAll()) == alone);
+        Instance d;
+        auto v = dronePatch (d);
+        v.push_back ({ "Trig 1", 0.0 });
+        d.setup (v);
+        const auto rest = perform (d, 24000 * 3, { midiEvent (0, 0x90, 44, 90), midiEvent (0, 0x80, 44, 0) }, playingAll(), 128, false);
+        CHECK_PITCH (rest, 2000, 23000, padDegree[8]);
+        CHECK_PITCH (rest, 26000, 47000, padDegree[1]);
+        CHECK_PITCH (rest, 50000, 71000, padDegree[2]);
+    }
+    // While the sequence plays with Hold: a pad held past the step's gate end stays lit until its note off; the steps
+    // after it end their gates as before (the pad takes none of the sequence's gate ends away). And a pad's roll still to
+    // come gives way to the next step.
+    {
+        // Steps at 1/4 (24,000 frames), their gates ending 6,000 frames in; the pad struck at 51,000, inside step 3's gate
+        // (which ends at 54,000), held to 63,000 (or tapped).
+        auto run = [] (uint64_t offAt) {
+            Instance a;
+            a.setup ({ { "Echo", 0.0 }, { "Space", 0.0 }, { "Hold", 0.6 }, { "Decay", 0.0 }, { "Ring", 0.0 }, { "Rate", a.valueOf ("Rate", "1/4") },
+                       { "Gate", 0.25 }, { "Swing", 0.5 }, { "Human", 0.0 } });
+            for (int s = 1; s <= 16; ++s) a.setup ({ { "Trig " + std::to_string (s), 1.0 }, { "Stroke " + std::to_string (s), 0.0 }, { "Chance " + std::to_string (s), 1.0 } });
+            std::vector<PadEvent> list;
+            if (offAt > 0) list = { padOn (51000, 44), padOff (offAt, 44) };
+            return perform (a, 24000 * 6, list, playingAll(), 128, false);
+        };
+        const auto held = run (63000), longer = run (71500), tapped = run (51200), without = run (0);
+        if (debug)
+        {
+            std::printf ("  pad hold: held %.6f, tapped %.6f, without %.6f; later held %.6f %.6f, without %.6f %.6f\n", peakOf (held, 58000, 62000),
+                         peakOf (tapped, 58000, 62000), peakOf (without, 58000, 62000), peakOf (held, 72000, 78000), peakOf (held, 84000, 95000),
+                         peakOf (without, 72000, 78000), peakOf (without, 84000, 95000));
+            for (size_t w = 62000; w < 72000; w += 1000)
+                std::printf ("    %zu: held %.6f longer %.6f\n", w, peakOf (held, w, w + 1000), peakOf (longer, w, w + 1000));
+        }
+        CHECK (peakOf (held, 58000, 62000) > 4.0 * peakOf (tapped, 58000, 62000));
+        CHECK (peakOf (held, 58000, 62000) > 4.0 * peakOf (without, 58000, 62000));
+        CHECK (peakOf (held, 69000, 71000) < 0.5 * peakOf (longer, 69000, 71000));
+        for (int k = 3; k < 6; ++k)
+        {
+            const size_t at = (size_t) k * 24000;
+            CHECK (peakOf (held, at, at + 6000) > 1e-2);
+            CHECK (peakOf (held, at + 12000, at + 23000) < 3.0 * peakOf (without, at + 12000, at + 23000) + 1e-4);
+        }
+        Instance r;
+        auto v = dronePatch (r);
+        v.push_back ({ "Stroke 9", r.valueOf ("Stroke 9", "Roll") });
+        r.setup (v);
+        const auto roll = perform (r, 24000 * 4, { padOn (47000, 44), padOff (47500, 44) }, playingAll(), 128, false);
+        CHECK_PITCH (roll, 50000, 71000, padDegree[2]);
+    }
+    // All Sound Off and All Notes Off on every channel (Melodee's silence), a choke: a held pad stops; a pad and All
+    // Sound Off on one frame play nothing; All Notes Off ends a pad's Hold as its note off would.
+    {
+        const std::vector<std::pair<std::string, double>> dry { { "Echo", 0.0 }, { "Space", 0.0 }, { "Hold", 0.6 }, { "Decay", 0.0 }, { "Ring", 0.0 } };
+        auto storm = [] (uint64_t at, std::vector<PadEvent> list) {
+            for (int ch = 0; ch < 16; ++ch) list.push_back (midiEvent (at, 0xb0 | ch, 120, 0)), list.push_back (midiEvent (at, 0xb0 | ch, 123, 0));
+            return list;
+        };
+        for (bool playing : { false, true })
+        {
+            Instance a;
+            a.setup (dry);
+            const auto out = perform (a, 48000, storm (12800, { padOn (100, 38) }), playing ? playingAll() : stoppedAll(), 128, false);
+            CHECK (peakOf (out, 0, 12800) > 1e-3);
+            if (! playing)
+                CHECK (peakOf (out, 12800) < 1e-6);
+        }
+        Instance b;
+        b.setup (dry);
+        CHECK (peakOf (perform (b, 24000, storm (100, { padOn (100, 38) }), stoppedAll())) < 1e-6);
+        Instance c, d;
+        c.setup (dry), d.setup (dry);
+        const auto notesOff = perform (c, 48000 * 3, { padOn (100, 38), midiEvent (12000, 0xb0, 123, 0) }, stoppedAll());
+        CHECK (notesOff == perform (d, 48000 * 3, { padOn (100, 38), padOff (12000, 38) }, stoppedAll()));
+        Instance e;
+        e.setup (dry);
+        e.setup ({ { "Stroke 1", e.valueOf ("Stroke 1", "Roll") } });
+        const auto choked = perform (e, 24000, { padOn (0, 36), { 1000, PadEvent::choke, 36, 0.0 } }, stoppedAll(), 128, false);
+        CHECK (peakOf (choked, 0, 1000) > 1e-3);
+        CHECK (peakOf (choked, 1001) < 1e-6);
+    }
+    // The same output in blocks of 1, 37, 128 and 4096 frames, with pads on the sequence's step frames, two on a frame,
+    // on/on/off, keys transposing, MIDI; playing, and stopped.
+    for (bool playing : { true, false })
+    {
+        auto scene = [&] (uint32_t block) {
+            Instance a;
+            a.setup ({ { "Hold", 0.5 }, { "Echo", 0.3 }, { "Stroke 7", 6.0 }, { "Stroke 12", 5.0 } });
+            const std::vector<PadEvent> list { padOn (12000, 39, 0.6), padOn (24000, 44, 0.9), padOn (24000, 45, 0.5), padOff (30011, 39), padOn (33337, 64),
+                                               padOff (40000, 64), padOn (45001, 42, 1.0), padOn (52007, 47, 0.3), padOff (56003, 44), padOff (56003, 45),
+                                               padOn (60000, 41), padOn (66011, 41, 0.7), padOff (70001, 41), midiEvent (78009, 0x90, 50, 120),
+                                               midiEvent (80001, 0x90, 50, 0), padOn (90001, 36, 0.8), padOff (90001, 36), padOff (96000, 42),
+                                               padOff (96000, 47), padOn (101009, 43), { 105003, PadEvent::choke, 43, 0.0 }, padOn (110000, 51, 0.95) };
+            return perform (a, 48000 * 3, list, playing ? playingAll() : stoppedAll(), block);
+        };
+        const auto reference = scene (128);
+        for (uint32_t block : { 1u, 37u, 4096u })
+            CHECK (scene (block) == reference);
+    }
+}
+
 void testRegenerate()
 {
     Instance a;
@@ -1266,6 +1622,7 @@ int main (int argc, char** argv)
     run ("blocks", testBlockSizes);
     run ("notes", testNotes);
     run ("hold", testHold);
+    run ("pads", testPads);
     run ("regenerate", testRegenerate);
     run ("echo-dc", testEchoDc);
     run ("extremes", testExtremes);

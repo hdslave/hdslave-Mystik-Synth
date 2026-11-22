@@ -37,8 +37,10 @@ random-2 d894bbf649ef49bd
 random-3 df287a2ea791f3c6
 random-4 096e83637d6bb21c
 random-5 8425a184cd209a33
-random-6 5e19a27d9bc2a71f
+random-6 91e55648b5fe277e
 random-7 959bffd25f1f6497
+pads-stopped ba7a222f6695753f
+pads-playing bb75ee00d3c94d08
 blocks-128 9faf7e540ebf852b
 blocks-1 9faf7e540ebf852b
 blocks-37 9faf7e540ebf852b

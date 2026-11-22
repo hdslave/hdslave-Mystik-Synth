@@ -4,9 +4,10 @@
 // are. A change meant to change the sound updates the file with `make fingerprint-update`.
 //   fingerprint PLUGIN.clap [EXPECTED.txt]
 // Scenarios: every factory preset playing, each sequencer mode, keys in each Notes mode, MIDI, other rates, the
-// transport (stop, Play again, a jump, a loop told a block late), random settings, and the same scene in blocks of 1,
-// 37 and 4096 frames, which must hash as in blocks of 128. Hashes hold for this toolchain and these flags (Melodee's
-// build image, -O3 -mcpu=cortex-a55 -ffp-contract=fast): another compiler may round differently.
+// transport (stop, Play again, a jump, a loop told a block late), random settings, the step pads (stopped and playing),
+// and the same scene in blocks of 1, 37 and 4096 frames, which must hash as in blocks of 128. Hashes hold for this
+// toolchain and these flags (Melodee's build image, -O3 -mcpu=cortex-a55 -ffp-contract=fast): another compiler may
+// round differently.
 #include <clap/clap.h>
 
 #include <algorithm>
@@ -341,6 +342,30 @@ std::vector<Scenario> scenarios()
         s.bpm = 90.0 + 13.0 * seed;
         for (int i = 0; i < 10; ++i)
             s.events.push_back (noteAt ((uint64_t) i * 27000 + seed * 101, 40 + (i * 7 + (int) seed) % 40, 0.3 + 0.07 * i));
+        list.push_back (s);
+    }
+    // 0.3: with the sequencer on, keys 36-51 play steps 1-16 (the pads), stopped and while it plays: two on a frame, on,
+    // on, off, MIDI, flams and rolls, keys around them (playing: they transpose), a pad on a step's frame.
+    for (bool playing : { false, true })
+    {
+        Scenario s;
+        s.name = playing ? "pads-playing" : "pads-stopped";
+        s.values = { { "Hold", 0.5 }, { "Stroke 2", 5 }, { "Stroke 6", 6 }, { "Stroke 11", 6 } };
+        for (int i = 0; i < 16; ++i)
+        {
+            s.events.push_back (noteAt ((uint64_t) i * 13001 + 500, 36 + (i * 5) % 16, 0.35 + 0.65 * (i % 4) / 3.0));
+            s.events.push_back (noteOffAt ((uint64_t) i * 13001 + 500 + (i % 3 == 0 ? 9000 : 2500), 36 + (i * 5) % 16));
+        }
+        s.events.push_back (noteAt (60000, 38, 0.5)), s.events.push_back (noteAt (60000, 45, 0.8)), s.events.push_back (noteOffAt (66000, 38));
+        s.events.push_back (noteOffAt (66000, 45));
+        s.events.push_back (noteAt (90000, 41, 0.6)), s.events.push_back (noteAt (99000, 41, 0.9)), s.events.push_back (noteOffAt (108000, 41));
+        s.events.push_back (midiAt (120000, 0x90, 47, 110)), s.events.push_back (midiAt (120000, 0x90, 47, 0));
+        s.events.push_back (noteAt (144000, 64, 0.7)), s.events.push_back (noteOffAt (150000, 64));
+        s.events.push_back (noteAt (168000, 35, 0.7)), s.events.push_back (noteOffAt (174000, 35));
+        s.events.push_back (noteAt (192000, 52, 0.7)), s.events.push_back (noteOffAt (198000, 52));
+        s.events.push_back (noteAt (216000, 36, 1.0)), s.events.push_back (noteOffAt (222000, 36));
+        if (! playing)
+            s.transport = [] (uint64_t, double, double) { return std::make_pair (false, 0.0); };
         list.push_back (s);
     }
     // The same scene in other block sizes: must hash as in blocks of 128 (checked in main()).

@@ -21,13 +21,13 @@ Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melo
 - **The sequencer** can be off; on, it plays 16 steps (pitch as a scale degree, trig, stroke, chance) as Pattern,
   Euclid, Turing, Automaton, Bounce or Rhythm (14 traditional timelines from tresillo to teental), with slides,
   303-style accents that build on each other, swing, density, rotation, mutation, twelve scales (Pelog and Slendro
-  microtonal), a seed and Regenerate.
+  microtonal), a seed and Regenerate. While it is on, pads 1-16 play its steps, so a pattern can be heard step by step.
 - **The effects**: Drive, Crush, a ping-pong Echo synced to the tempo with Absorb in its loop, Space (a spring-like
   tank of dispersive allpasses).
-- **Cost**: about 88,000 instructions a 128-frame block playing (1.8 % of one of the MPC's cores), 1,900 stopped;
-  a page frame about 384,000 instructions in the PLAY benchmark, redrawing only what moved.
+- **Cost**: about 90,000 instructions a 128-frame block playing (1.9 % of one of the MPC's cores), 1,900 stopped;
+  a page frame about 380,000 instructions in the PLAY benchmark, redrawing only what moved.
 
-Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
+Version 0.3.0. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
 
 ## Install
 
@@ -49,13 +49,21 @@ Minus and Plus turn the pages; Shift shows what the controls do on the page in v
 | FX | the chain, the echo's taps | as SKIN | | |
 | MODE | the mode at work: the Euclid ring, the Turing register, the automaton's last 16 generations, the bounces, the timeline's strokes | as SKIN (rows a mode does not use are dimmed) | | |
 
-Keys: with the sequencer on and the song playing a key transposes the pattern (from C3, latched); stopped, keys play
-the drum. With it off, Notes decides: **Pitch** (the key sets the pitch from C3; velocity 100 or more accents;
-overlapping keys slide and hold), **Strokes** (keys 36-43 play the eight strokes at Tune, each 8 keys up an octave:
-two drums, high and low, like a pair of bongos), **Steps** (keys 36-51 play steps 1-16). Pitch bend is +-2
-semitones, the mod wheel folds. Melodee's All Sound Off (CC 120 at 0) silences the drum and the tails, All Notes Off
-(CC 123 at 0) lets held notes go, Reset All Controllers (CC 121) puts the bend and the mod wheel back at rest, a choke
-stops the drum.
+Pads and keys. **Sequencer on: pads 1-16 play steps 1-16**, whether the song plays or not (they are keys 36-51: pads
+A01-A16 on a plug-in track at hdslaveOS's default octave and key, pad 1 bottom left). A pad plays its step once, as
+the sequence plays it: its pitch in the scale, with the transposition, its stroke, its accent (a hit at velocity 100
+or more accents too). It plays a step that rests, or that Chance or Density would drop, too. It moves neither the
+sequence nor the transposition: the step the sequence plays next is the one it would have played anyway, and it takes
+the drum back. In Euclid, Turing, Automaton, Bounce and Rhythm a pad plays the step's own Pitch, Trig and Stroke (so
+not Turing's pitches, the accents Euclid and Automaton add, or a timeline's strokes). Two pads at once: the louder
+plays. A pad struck just as the sequence plays a step gives way to that step. While a pad is held, Hold keeps the gate
+lit, until the pad is let go or the sequence's next step takes over. The other keys: with the song playing, a key
+transposes the pattern (from C3, latched); stopped, keys play the drum as Notes says. **Sequencer off: the pads play
+notes**, as Notes says: **Pitch** (the key sets the pitch from C3; velocity 100 or more accents; overlapping keys slide
+and hold), **Strokes** (keys 36-43 play the eight strokes at Tune, each 8 keys up an octave: two drums, high and low,
+like a pair of bongos), **Steps** (keys 36-51 play steps 1-16). Pitch bend is +-2 semitones, the mod wheel folds.
+Melodee's All Sound Off (CC 120 at 0) silences the drum and the tails, All Notes Off (CC 123 at 0) lets held notes go,
+Reset All Controllers (CC 121) puts the bend and the mod wheel back at rest, a choke stops the drum.
 
 ## Parameters
 
@@ -109,7 +117,7 @@ tank's level), Space Decay, Volume.
 
 | Name | What it does |
 |---|---|
-| Sequencer | Off / On |
+| Sequencer | Off / On. On, pads 1-16 play its steps; off, they play notes (see Playing it) |
 | Seq Mode | Pattern, Euclid, Turing, Automaton, Bounce, Rhythm (below) |
 | Rate | 1/2 to 1/64, triplets: a step on each from the song's top, so the same place always plays the same step |
 | Length | 1-16 steps (Rhythm uses its timeline's) |
@@ -127,7 +135,7 @@ tank's level), Space Decay, Volume.
 | Curve | Bounce: each bounce this much shorter (x0.50-0.92) |
 | Seed | all the randomness (a hash of the step's place, the seed and a salt) |
 | Regenerate | a new Seed (told to the host) |
-| Notes | Pitch, Strokes, Steps (see Playing it) |
+| Notes | Pitch, Strokes, Steps: what the keys play when they neither transpose nor play steps; with the sequencer off, the pads too (see Playing it) |
 
 Per step: **Pitch** (a degree of Scale, -21 to 21), **Trig** (Rest, Hit, Accent, Slide, Acc+Slide: a slide glides
 into the step without a new strike), **Stroke** (Open, Slap, Bass, Mute, Ghost, Flam, Roll, Press), **Chance**.
@@ -182,18 +190,22 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
     tools/bench.sh           # instructions a block (callgrind): worst, acid, typical, stopped, a page frame
     ./build.sh fingerprint-update   # only after a change meant to change the sound
 
-- `tests/host.cpp` (339,759 checks): the description, every parameter's text both ways, state, presets, the gate held
+- `tests/host.cpp` (681,084 checks): the description, every parameter's text both ways, state, presets, the gate held
   to the 292's response at seven settings, the vactrol's timing, steps to the sample (swing too), every sequencer mode,
   stop and Play again, a loop the host tells a block late, the same output in blocks of 1, 37, 128 and 4096 frames,
-  keys and MIDI, Hold ending with the note (a flam's, roll's or bounce's later hits do not light it again), Regenerate,
-  the echo's loop shedding DC, extreme settings at 44.1, 48 and 96 kHz, and the page (its pictures in `build/`).
-- `tests/fingerprint.cpp`: a hash of every output sample over 44 scenarios (each preset, each mode, keys, MIDI, rates,
-  the transport, random settings, block sizes).
+  keys and MIDI, Hold ending with the note (a flam's, roll's or bounce's later hits do not light it again), the step
+  pads (each pad against Notes: Steps and against the sequence playing that step, their pitches stopped and playing,
+  the sequence and the transposition left as they were, Turing's register too, the other keys still transposing, the
+  sequencer off, two pads on a frame, on/on/off, a pad on Play's frame, Hold while the sequence plays, a pad's roll
+  giving way to the next step, CC 120/123 storms and chokes, block sizes), Regenerate, the echo's loop shedding DC,
+  extreme settings at 44.1, 48 and 96 kHz, and the page (its pictures in `build/`).
+- `tests/fingerprint.cpp`: a hash of every output sample over 47 scenarios (each preset, each mode, keys, MIDI, rates,
+  the transport, random settings, the step pads stopped and playing, block sizes).
 - In Melodee's own host: `clap_check` (loads and plays it as Melodee does) and `melodee --melodee-plugin-screen` (its
   pages in Melodee's screen, the K1-K3 bindings), with the hdslaveOS checkout mounted read-only.
 
 Cost (callgrind, 128-frame blocks at 48 kHz; about 4.8 million cycles a block on the MPC's 1.8 GHz A55): worst
-94,200, acid 86,200, typical 88,400, stopped 1,900 instructions a block; a PLAY frame while it plays about 384,000.
+96,500, acid 87,700, typical 90,200, stopped 1,900 instructions a block; a PLAY frame while it plays about 380,000.
 The voice runs at twice the rate (a 47-tap half-band filter brings it down, its 12 symmetric pairs as three NEON
 multiply-adds), the membrane is two four-lane vectors, the spring's two sides one two-lane vector,
 the slow parts (pitch, the membrane's angles, the vactrol's time constants, the gate's coefficients) are worked out

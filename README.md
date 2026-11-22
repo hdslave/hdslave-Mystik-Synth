@@ -1,13 +1,12 @@
 # hdslave Mystik
 
-A west-coast hand drum for the Akai MPC Sample: one drum (an eight-mode membrane and a complex oscillator) struck by a
-hand through a modelled vactrol low-pass gate, played by its own six-mode sequencer, through four very cheap effects,
-with its own page on the MPC's screen. A CLAP instrument for Melodee on the MPC Sample (64-bit ARM Linux); its page
-needs [hdslaveOS](https://github.com/hdslave/hdslaveOS) (other hosts show the parameter list).
+**A west-coast physical hand drum, Buchla-style vactrol low-pass gate, and 6-mode sequencer as a CLAP plug-in for the Akai MPC Sample.**
 
-![The pages as Melodee shows them](docs/pages.png)
+![Mystik seven acid-rave pages running in hdslaveOS](docs/mystik-pages.gif)
 
-![All seven pages during playback, with MODE switching from Pattern to Automaton](docs/mystik-pages.gif)
+Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Mystik pairs an 8-mode physical membrane (nine bodies from tabla to iron bell) and a wavefolding complex oscillator — struck by eight hand strokes through a modelled 292 vactrol low-pass gate — with a six-mode sequencer, four lo-fi effects, and seven acid-rave custom pages under **hdslaveOS** (other hosts show the standard parameter list).
+
+![All seven Mystik pages overview](docs/pages.png)
 
 - **The gate** is the 292-style low-pass gate of Parker and D'Angelo's model: the vactrol's LDR curve, a light that
   rises in about 12 ms and falls in about 250 ms (slower as it darkens), the circuit's own transfer function for VCA,

@@ -1,5 +1,5 @@
 // Native-pixel drawing for Mystik's page on Melodee's screen (320 x 218, shown as RGB565): the palette, primitives,
-// ordered dithering for gradients, and a picture that sends only the pixels that changed.
+// text, and a picture that sends only the pixels that changed.
 #pragma once
 
 #include "font.h"
@@ -16,14 +16,14 @@ constexpr int width = 320, height = 218;
 constexpr uint32_t noParam = 0xffffffffu;
 using Ink = uint32_t;
 
-// Night indigo, moon white, and the vactrol's amber light.
+// Black vinyl, cold chrome, enamel pink, and the vactrol’s acid light.
 namespace ink
 {
-constexpr Ink bg = 0xff0a0714, field = 0xff110b20, card = 0xff19122e, selected = 0xff2a1d4a;
-constexpr Ink rule = 0xff3d2c66, grid = 0xff231a3d, faint = 0xff1a1330;
-constexpr Ink muted = 0xff9a8dc2, soft = 0xffc9b8ff, paper = 0xfff3ecff, parked = 0xff5f5384;
-constexpr Ink amber = 0xffffb14a, hot = 0xffffe6b0, ember = 0xffd8521c, deep = 0xff6a1a10;
-constexpr Ink teal = 0xff45e0c0, magenta = 0xffff4fa0, violet = 0xff8a6cff;
+constexpr Ink bg = 0xff07070e, field = 0xff10101c, card = 0xff1f1d30;
+constexpr Ink rule = 0xff58516f, grid = 0xff393347, faint = 0xff201d31;
+constexpr Ink muted = 0xffbeb7ce, soft = 0xffd2ceee, paper = 0xfff4f6ff, parked = 0xff918aab;
+constexpr Ink acid = 0xffc9ff14, hot = 0xffedffb0, lime = 0xff80aa20;
+constexpr Ink cyan = 0xff71eafe, pink = 0xffff50ac, violet = 0xffad86ff;
 }
 
 inline Ink mix (Ink a, Ink b, int t256) // a toward b by t/256
@@ -34,9 +34,6 @@ inline Ink mix (Ink a, Ink b, int t256) // a toward b by t/256
     };
     return 0xff000000u | ch (16) | ch (8) | ch (0);
 }
-
-// 4 x 4 Bayer thresholds (0..15): a gradient picks between two neighbouring inks by it, so RGB565 shows no bands.
-constexpr uint8_t bayer[4][4] = { { 0, 8, 2, 10 }, { 12, 4, 14, 6 }, { 3, 11, 1, 9 }, { 15, 7, 13, 5 } };
 
 struct Host
 {
@@ -150,25 +147,11 @@ struct Raster
         }
         return x;
     }
-    // Twice the size, each row's ink from `top` to `bottom` (a wordmark).
-    int large (int x, int y, const char* s, Ink top, Ink bottom, int advance = 2 * font::glyphWidth + 1) const
+    // A strip with a sloped right edge, like the cut on the wordmark.
+    void tab (int x, int y, int wide, int high, Ink c) const
     {
-        for (; *s; ++s, x += advance)
-        {
-            const unsigned ch = static_cast<unsigned char> (*s);
-            const auto& glyph = font::glyphs[(ch >= 32 && ch <= 127 ? ch : '?') - 32];
-            for (int j = 0; j < font::glyphHeight; ++j)
-            {
-                const Ink c0 = mix (top, bottom, j * 256 / font::glyphHeight), c1 = mix (top, bottom, (2 * j + 1) * 128 / font::glyphHeight);
-                for (int bits = glyph[j], k = 0; bits; bits >>= 1, ++k)
-                    if (bits & 1)
-                    {
-                        dot (x + 2 * k, y + 2 * j, c0), dot (x + 2 * k + 1, y + 2 * j, c0);
-                        dot (x + 2 * k, y + 2 * j + 1, c1), dot (x + 2 * k + 1, y + 2 * j + 1, c1);
-                    }
-            }
-        }
-        return x;
+        for (int j = 0; j < high; ++j)
+            box (x, y + j, wide - j / 2, 1, c);
     }
     void right (int end, int y, const char* s, Ink c, int advance = font::glyphWidth) const
     {

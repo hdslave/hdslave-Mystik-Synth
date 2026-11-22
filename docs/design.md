@@ -154,14 +154,21 @@ number, Seed and a salt: the same place in the song plays the same way. Regenera
 
 ## Screen page
 
-320 x 218, dark indigo, amber vactrol light. Seven pages, Minus/Plus between them: PLAY (the vactrol orb glowing
-with the model's light, the ritual ring of 16 steps, a phosphor scope; the wheel picks which trio the pots hold,
-Push switches the sequencer, Shift + Push regenerates), SEQ (16 lanes: pitch, trig, stroke, chance; wheel picks a
-step, Push cycles its trig, K1-K3 its pitch, stroke and chance), SKIN, OSC, GATE (the gate's response at the current
-light and the light's recent history), FX, MODE (the mode's own picture: Euclid ring, Turing bits, automaton
-generations, bounces, the timeline's strokes). Lists: the wheel moves the cursor, Push edits, K1-K3 hold the cursor's
-row and the next two. Shift shows the controls. Regions are redrawn only where they changed; animation is confined
-to the orb, the scope and the playhead.
+The plug-in draws at 320 × 218 beneath Melodee’s soft keys. A chrome Mystik wordmark and a seven-position page
+indicator sit above every page. Acid green marks the active row or playing step. The cyan outline on SEQ follows
+the editing cursor independently of playback.
+
+Minus and Plus move through seven pages. PLAY surrounds a chrome smiley with the active step ring. Its enamel
+brightens with the gate’s light, and a strike sends a ripple out to the steps. The scope shows the live voice.
+The wheel selects a trio for K1–K3, Push toggles the sequencer, and Shift + Push regenerates the pattern.
+SEQ groups the 16 lanes in fours. The wheel picks a step, Push cycles its trigger, and K1–K3 set pitch, stroke,
+and chance. SKIN shows the membrane modes, OSC the folded waveform, GATE the current response and light history,
+FX the signal chain, and MODE the active sequencer algorithm. On these pages the wheel moves the cursor, Push
+edits, and K1–K3 hold the selected row and the next two. Shift shows the control legend.
+
+The chrome art is embedded at native resolution. PLAY copies the static plate and relights the enamel spans on
+each animation frame. The renderer compares regions before sending changed pixels to the host. The artwork can
+be regenerated with `tools/rave_art.py` using Pillow and aggdraw.
 
 ## Cost targets (callgrind, 128-frame blocks at 48 kHz)
 

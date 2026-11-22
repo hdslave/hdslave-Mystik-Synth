@@ -7,7 +7,7 @@ needs [hdslaveOS](https://github.com/hdslave/hdslaveOS) (other hosts show the pa
 
 ![The pages as Melodee shows them](docs/pages.png)
 
-![A tour: PLAY while it plays, SEQ, GATE, then MODE switched to Automaton](docs/mystik-pages.gif)
+![All seven pages during playback, with MODE switching from Pattern to Automaton](docs/mystik-pages.gif)
 
 - **The gate** is the 292-style low-pass gate of Parker and D'Angelo's model: the vactrol's LDR curve, a light that
   rises in about 12 ms and falls in about 250 ms (slower as it darkens), the circuit's own transfer function for VCA,
@@ -26,7 +26,7 @@ needs [hdslaveOS](https://github.com/hdslave/hdslaveOS) (other hosts show the pa
 - **The effects**: Drive, Crush, a ping-pong Echo synced to the tempo with Absorb in its loop, Space (a spring-like
   tank of dispersive allpasses).
 - **Cost**: about 88,000 instructions a 128-frame block playing (1.8 % of one of the MPC's cores), 1,900 stopped;
-  a page frame about 375,000 instructions (0.2 ms), redrawing only what moved.
+  a page frame about 384,000 instructions in the PLAY benchmark, redrawing only what moved.
 
 Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
 
@@ -42,7 +42,7 @@ Minus and Plus turn the pages; Shift shows what the controls do on the page in v
 
 | Page | Picture | Wheel | Push | K1 / K2 / K3 |
 |---|---|---|---|---|
-| PLAY | the vactrol's light as an orb (the model's own light level), the ring of steps (accents, slides, the step playing), a phosphor scope, the gate's cutoff now | picks a trio for the pots: TONE, HIT, SKIN, WEIRD, GROOVE, SPACE | Sequencer on/off; Shift + Push: Regenerate | the trio (TONE: Timbre, Decay, Resonance) |
+| PLAY | a chrome smiley whose green enamel follows the vactrol’s light, the ring of steps (accents, slides, the step playing), a phosphor scope, the gate's cutoff now | picks a trio for the pots: TONE, HIT, SKIN, WEIRD, GROOVE, SPACE | Sequencer on/off; Shift + Push: Regenerate | the trio (TONE: Timbre, Decay, Resonance) |
 | SEQ | 16 lanes: pitch, trig, stroke letter, chance; the step playing lit | picks a step | cycles its trig (Rest, Hit, Accent, Slide, Acc+Slide); Shift + Push plays it | its Pitch, Stroke, Chance |
 | SKIN | the body's modes as struck at Position, the drum head | moves the cursor (Push to edit: the wheel then sets the value, Shift + wheel finely, Minus/Plus coarsely) | edit / done | the cursor's row and the next two |
 | OSC | one cycle of the oscillator as folded, at the gate's present light | as SKIN | | |
@@ -181,7 +181,7 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
     tools/bench.sh           # instructions a block (callgrind): worst, acid, typical, stopped, a page frame
     ./build.sh fingerprint-update   # only after a change meant to change the sound
 
-- `tests/host.cpp` (305,362 checks): the description, every parameter's text both ways, state, presets, the gate held
+- `tests/host.cpp` (310,623 checks): the description, every parameter's text both ways, state, presets, the gate held
   to the 292's response at seven settings, the vactrol's timing, steps to the sample (swing too), every sequencer mode,
   stop and Play again, a loop the host tells a block late, the same output in blocks of 1, 37, 128 and 4096 frames,
   keys and MIDI, Regenerate, extreme settings at 44.1, 48 and 96 kHz, and the page (its pictures in `build/`).
@@ -191,7 +191,7 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
   pages in Melodee's screen, the K1-K3 bindings), with the hdslaveOS checkout mounted read-only.
 
 Cost (callgrind, 128-frame blocks at 48 kHz; about 4.8 million cycles a block on the MPC's 1.8 GHz A55): worst
-94,200, acid 86,200, typical 88,400, stopped 1,900 instructions a block; a page frame while it plays about 375,000.
+94,200, acid 86,200, typical 88,400, stopped 1,900 instructions a block; a PLAY frame while it plays about 384,000.
 The voice runs at twice the rate (a 47-tap half-band filter brings it down, its 12 symmetric pairs as three NEON
 multiply-adds), the membrane is two four-lane vectors, the spring's two sides one two-lane vector,
 the slow parts (pitch, the membrane's angles, the vactrol's time constants, the gate's coefficients) are worked out

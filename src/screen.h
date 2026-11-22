@@ -1,6 +1,6 @@
 // Mystik's page on Melodee's screen (melodee_screen.h): 320 x 218 under the soft keys.
 //
-//   PLAY  the vactrol's light as a glowing orb (the model's own light level), the ring of steps around it (accents,
+//   PLAY  the vactrol's light on a chrome smiley (the model's own light level), the ring of steps around it (accents,
 //         slides, the step playing), a phosphor scope; the wheel picks which three controls K1-K3 hold, Push starts and
 //         stops the sequencer, Shift + Push regenerates.
 //   SEQ   the 16 steps as lanes (pitch, trig, stroke, chance): the wheel picks a step, Push cycles its trig, Shift +
@@ -15,7 +15,9 @@
 #include "engine.h"
 #include "params.h"
 #include "ui/page.h"
+#include "ui/rave_art.h"
 
+#include <array>
 #include <atomic>
 #include <iterator>
 
@@ -176,10 +178,12 @@ public:
             default:
                 if (chrome || params)
                     drew |= picture.region<186, 142> (pixels, stride, whole, 0, 26, [&] (Raster& r) { listRows (r); });
-                if (chrome || params || moved || generation != shownGeneration || (frame && glowing && (page == gate)))
+                if (chrome || params || moved || generation != shownGeneration || (frame && glowing && (page == gate || page == osc)))
                     drew |= picture.region<132, 142> (pixels, stride, whole, 188, 26, [&] (Raster& r) { picturePanel (r, light, place, running); });
                 break;
         }
+        if (whole)
+            drew |= picture.region<320, 2> (pixels, stride, true, 0, 168, [] (Raster&) {});
         if (chrome || params || pots || h.shift != lastHost.shift || h.accent != lastHost.accent)
             drew |= picture.region<320, 48> (pixels, stride, whole, 0, 170, [&] (Raster& r) {
                 if (h.shift) legend (r);
@@ -282,22 +286,22 @@ private:
     void header (const Raster& r) const
     {
         using namespace hdui;
-        r.large (6, 2, "MYSTIK", ink::hot, ink::ember);
-        // A crescent: the moon over the drum.
-        r.disc (104, 13, 6, ink::amber);
-        r.disc (107, 11, 6, ink::bg);
-        static const char* const names[pageCount] = { "PLAY", "SEQ", "SKIN", "OSC", "GATE", "FX", "MODE" };
-        r.text (118, 4, names[page], ink::paper);
+        for (int y = 0; y < 25; ++y)
+            for (int x = 0; x < 132; ++x)
+                r.px[y * r.w + x + 2] = art::logoPalette[art::logo[y][x]];
+        static constexpr const char* names[] = { "PLAY", "SEQ", "SKIN", "OSC", "GATE", "FX", "MODE" };
+        r.tab (142, 3, 63, 13, ink::acid);
+        r.text (147, 5, names[page], ink::bg);
         for (int i = 0; i < pageCount; ++i)
-            i == page ? r.box (118 + i * 8, 19, 5, 3, ink::amber) : r.box (119 + i * 8, 20, 3, 1, ink::rule);
-        r.box (4, 25, 202, 1, ink::rule);
+            r.tab (142 + 8 * i, 19, 7, 3, i == page ? ink::acid : ink::rule);
+        r.box (4, 25, 202, 1, ink::grid);
     }
 
     // The header's right end: the sequencer's mode, rate and the step it is on (redrawn as steps go by).
     void status (const Raster& r, int place, bool running) const
     {
         using namespace hdui;
-        r.right (108, 4, seqModeChoices[modeNow()], ink::soft);
+        r.right (108, 3, seqModeChoices[modeNow()], ink::paper);
         char s[24];
         if (val (ParamId::seqOn) < 0.5f)
             std::snprintf (s, sizeof (s), "SEQ OFF");
@@ -305,8 +309,8 @@ private:
             std::snprintf (s, sizeof (s), "%s  --/%02d", rateChoices[std::clamp (ival (ParamId::rate), 0, 9)], cycleLength());
         else
             std::snprintf (s, sizeof (s), "%s  %02d/%02d", rateChoices[std::clamp (ival (ParamId::rate), 0, 9)], place + 1, cycleLength());
-        r.right (108, 14, s, running ? ink::amber : ink::muted);
-        r.box (0, 25, 110, 1, ink::rule);
+        r.right (108, 14, s, running ? ink::acid : ink::muted);
+        r.box (0, 25, 110, 1, ink::grid);
     }
 
     // --- PLAY -------------------------------------------------------------------------------------------------------
@@ -368,71 +372,57 @@ private:
         switch (stroke)
         {
             case Stroke::slap: return ink::paper;
-            case Stroke::bass: return ink::amber;
+            case Stroke::bass: return ink::acid;
             case Stroke::mute: return ink::muted;
             case Stroke::ghost: return ink::parked;
             case Stroke::flam: case Stroke::roll: return ink::violet;
-            case Stroke::press: return ink::teal;
+            case Stroke::press: return ink::cyan;
             default: return ink::soft;
         }
     }
 
-    // The orb's inks: night, ember, amber, white heat (64 steps, dithered between neighbours).
-    static Ink orbInk (int i)
+    static Ink lightInk (int level)
     {
         using namespace hdui;
-        static Ink ramp[65];
-        static bool made = false;
-        if (! made)
-        {
-            const Ink anchors[5] = { ink::bg, 0xff2c0b26, 0xffc2461a, 0xffffad45, 0xfffff0cc };
-            for (int k = 0; k <= 64; ++k)
-            {
-                const int seg = std::min (3, k / 16), t = (k - seg * 16) * 16;
-                ramp[k] = mix (anchors[seg], anchors[seg + 1], t);
-            }
-            made = true;
-        }
-        return ramp[std::clamp (i, 0, 64)];
+        return level < 32 ? mix (ink::grid, ink::lime, level * 8)
+                          : mix (ink::lime, ink::acid, (level - 32) * 8);
     }
 
     void ringAndOrb (const Raster& r, const Host& h, float light, int place, bool running) const
     {
         using namespace hdui;
-        constexpr int cx = 80, cy = 68, track = 50;
-        const float lit = std::clamp (light, 0.0f, 1.0f);
-        // The orb: a core whose size and heat follow the light, a soft halo, an ember always lit.
-        const float glow = std::sqrt (lit);
-        const int core = 7 + (int) std::lround (24.0f * glow), halo = core + 9;
-        const float heat = 0.28f + 0.72f * glow;
-        uint8_t level[46 * 46 * 2 + 1];
-        const int reach = halo * halo;
-        const float invCore = 1.0f / (float) (core * core), invReach = 1.0f / (float) reach;
-        for (int d2 = 0; d2 <= reach; ++d2)
+        constexpr int cx = 80, cy = 65, track = 53;
+        // The chrome is printed once. Only the enamel's inks respond to the vactrol,
+        // so the face, including its anti-aliased edges, pulses without runtime lighting.
+        static constexpr auto plate = [] {
+            std::array<Ink, 160 * 126> pixels {};
+            for (int y = 0; y < 126; ++y)
+                for (int x = 0; x < 160; ++x)
+                    pixels[y * 160 + x] = art::medallionPalette[art::medallion[y][x]];
+            return pixels;
+        }();
+        std::memcpy (r.px, plate.data(), plate.size() * sizeof (Ink));
+        const float glow = std::log1p (255.0f * std::clamp (light, 0.0f, 1.0f)) / std::log (256.0f);
+        const int intensity = (int) std::lround (255 * glow);
+        Ink palette[std::size (art::medallionPalette)];
+        for (size_t i = 0; i < std::size (palette); ++i)
         {
-            const float t = (float) d2 * invCore;
-            const float inner = t < 1.0f ? (1.0f - t) * (1.0f - t) * (1.0f - 0.25f * t) : 0.0f;
-            const float u = 1.0f - (float) d2 * invReach, outer = u * u * u; // about (1 - d/halo)^2, without a root
-            level[d2] = (uint8_t) std::clamp ((int) ((heat * inner + 0.33f * heat * outer) * 1023.0f), 0, 255);
+            const Ink c = art::medallionPalette[i];
+            const int green = (c >> 8) & 255, blue = c & 255;
+            const int enamel = std::clamp (green - blue - 12, 0, 224);
+            palette[i] = mix (c, ink::bg, (255 - intensity) * enamel / 620);
         }
-        Ink* const pixels = r.px;
-        for (int y = -halo; y <= halo; ++y)
-        {
-            const int span = (int) std::sqrt ((float) (reach - y * y)); // the circle's own width on this row
-            Ink* const row = pixels + (cy + y) * r.w + cx;
-            const uint8_t* const dither = bayer[(cy + y) & 3];
-            for (int x = -span; x <= span; ++x)
-            {
-                const int k = (level[x * x + y * y] * 4 + dither[(cx + x) & 3]) >> 4; // 0..63, dithered
-                if (k > 0) row[x] = orbInk (k);
-            }
-        }
+        // The indexed spans cover just the enamel and its antialiased edge.
+        for (const auto& run : art::enamel)
+            for (int x = run.left; x < run.end; ++x)
+                r.px[run.y * r.w + x] = palette[art::medallion[run.y][x]];
+        const int halo = 35 + intensity / 48;
         // A strike's ripple: the head's wave running out to the ring.
         if (struck && h.nowMs >= strikeAt && h.nowMs - strikeAt < 260)
         {
             const float age = (float) (h.nowMs - strikeAt) / 260.0f;
             const int radius = halo + (int) ((float) (track - 4 - halo) * age);
-            r.ring (cx, cy, radius, mix (strikeAccent ? ink::magenta : ink::amber, ink::bg, (int) (age * 230.0f)));
+            r.ring (cx, cy, radius, mix (strikeAccent ? ink::pink : ink::acid, ink::bg, (int) (age * 230.0f)));
         }
         // The ring: a track, the steps of the cycle, slides as arcs inside, the step playing lit with a ray to the orb.
         const int len = std::max (1, running && place >= 0 ? tel.cycle.load (std::memory_order_relaxed) : cycleLength());
@@ -460,19 +450,19 @@ private:
                     const float t = (float) n / 8.0f;
                     float ux = unitCircle.x[j] + (unitCircle.x[i] - unitCircle.x[j]) * t, uy = unitCircle.y[j] + (unitCircle.y[i] - unitCircle.y[j]) * t;
                     const float norm = (float) (track - 9) / std::sqrt (ux * ux + uy * uy);
-                    r.dot (cx + (int) std::lround (ux * norm), cy + (int) std::lround (uy * norm), ink::teal);
+                    r.dot (cx + (int) std::lround (ux * norm), cy + (int) std::lround (uy * norm), ink::cyan);
                 }
             }
             if (now)
             {
                 r.dotted (cx + (int) std::lround ((float) (halo + 2) * (px[i] - (float) cx) / (float) track),
-                          cy + (int) std::lround ((float) (halo + 2) * (py[i] - (float) cy) / (float) track), x, y, ink::amber, 2);
-                r.disc (x, y, 6, mix (ink::bg, ink::amber, 90));
+                          cy + (int) std::lround ((float) (halo + 2) * (py[i] - (float) cy) / (float) track), x, y, ink::acid, 2);
+                r.disc (x, y, 6, mix (ink::bg, ink::acid, 90));
             }
             if (! g.on)
-                r.box (x, y, 2, 2, now ? ink::amber : ink::parked);
+                r.box (x, y, 2, 2, now ? ink::acid : ink::parked);
             else if (g.accent)
-                r.disc (x, y, 4, now ? ink::hot : ink::magenta);
+                r.disc (x, y, 4, now ? ink::hot : ink::pink);
             else
             {
                 r.ring (x, y, 3, now ? ink::hot : strokeInk (g.stroke));
@@ -488,7 +478,12 @@ private:
         char note[16];
         noteName (val (ParamId::tune) + degreeSemis (g.degree, ival (ParamId::scale)), note, sizeof (note));
         std::snprintf (s, sizeof (s), "%s %s", g.on ? strokeChoices[std::clamp (g.stroke, 0, 7)] : "rest", note);
-        r.centre (cx, 129, s, running ? ink::soft : ink::parked);
+        r.box (2, 126, 156, 15, ink::field);
+        r.tab (2, 126, 30, 15, ink::violet);
+        char stepText[4];
+        std::snprintf (stepText, sizeof (stepText), "%02d", 1 + std::clamp (shown, 0, steps - 1));
+        r.text (6, 129, stepText, ink::bg);
+        r.centre (89, 129, s, running ? ink::paper : ink::muted);
     }
 
     // The phosphor scope: the voice's last 1024 samples from a rising zero crossing, min and max a column, the two
@@ -498,7 +493,10 @@ private:
         using namespace hdui;
         r.box (0, 2, 156, 64, ink::field);
         r.frame (0, 2, 156, 64, ink::grid);
-        for (int x = 2; x < 154; x += 3) r.dot (x, 34, ink::grid);
+        for (int x = 15; x < 154; x += 15)
+            for (int y = 8; y < 64; y += 8)
+                r.dot (x, y, ink::rule);
+        r.dotted (2, 34, 153, 34, ink::grid, 3);
         constexpr int span = 1024, columns = 150;
         constexpr int size = 1536; // a trace and room to find its trigger: the newest of the ring
         const uint32_t end = tel.scopeAt.load (std::memory_order_acquire) - (uint32_t) size;
@@ -527,22 +525,20 @@ private:
         }
         for (int age = 2; age >= 1; --age)
         {
-            const Ink c = age == 2 ? 0xff2a1c12 : 0xff6a4520;
+            const Ink c = age == 2 ? 0xff30304f : 0xff7964a3;
             for (int x = 0; x < columns; ++x)
                 r.box (3 + x, 34 + trail[age - 1][x][0], 1, trail[age - 1][x][1] - trail[age - 1][x][0] + 1, c);
         }
         for (int x = 0; x < columns; ++x)
-            r.box (3 + x, 34 + lo[x], 1, hi[x] - lo[x] + 1, ink::amber);
+            r.box (3 + x, 34 + lo[x], 1, hi[x] - lo[x] + 1, ink::acid);
         for (int x = 0; x < columns; ++x)
         {
             trail[1][x][0] = trail[0][x][0], trail[1][x][1] = trail[0][x][1];
             trail[0][x][0] = lo[x], trail[0][x][1] = hi[x];
         }
         // Its name in a notch of its own, over the trace.
-        r.box (1, 3, 40, 13, ink::field);
-        r.box (1, 15, 40, 1, ink::grid);
-        r.box (40, 3, 1, 13, ink::grid);
-        r.text (5, 4, "SCOPE", ink::muted);
+        r.tab (0, 2, 49, 14, ink::soft);
+        r.text (4, 4, "SCOPE", ink::bg);
     }
 
     void info (const Raster& r, float light) const
@@ -551,21 +547,21 @@ private:
         r.box (0, 0, 156, 72, ink::field);
         char s[48];
         // The trio the pots hold.
-        std::snprintf (s, sizeof (s), "< %s >", trioNames[trio]);
-        r.text (6, 4, s, ink::paper);
-        r.right (150, 4, "WHEEL", ink::parked);
+        r.tab (0, 0, 90, 15, ink::acid);
+        r.text (6, 3, trioNames[trio], ink::bg);
+        r.right (150, 3, "WHEEL", ink::muted);
         // The gate's light and where it lets sound through.
         const GateResponse g = gateResponse (ldrOhms (light), gateCircuit (val (ParamId::gateMode), val (ParamId::resonance)));
         const double hz = dominantHz (g);
         if (light < 2e-4f) std::snprintf (s, sizeof (s), "GATE  closed");
         else if (hz >= 1000.0) std::snprintf (s, sizeof (s), "GATE  %.1f kHz", hz / 1000.0);
         else std::snprintf (s, sizeof (s), "GATE  %.0f Hz", hz);
-        r.text (6, 20, s, light > 2e-4f ? ink::amber : ink::muted);
+        r.text (6, 20, s, light > 2e-4f ? ink::acid : ink::muted);
         const float level = std::clamp ((std::log10 (std::max (light, 1e-4f)) + 4.0f) / 4.0f, 0.0f, 1.0f);
         r.box (6, 34, 144, 3, ink::grid);
         const int fill = (int) std::lround (level * 144.0f);
         for (int x = 0; x < fill; ++x)
-            r.box (6 + x, 34, 1, 3, orbInk (16 + x * 48 / 144));
+            if (x % 8 < 6) r.box (6 + x, 34, 1, 3, lightInk (16 + x * 48 / 144));
         // Scale and seed.
         formatted (ParamId::tune, s);
         char line[96];
@@ -593,7 +589,14 @@ private:
         for (int i = 0; i < steps; ++i) widest = std::max (widest, std::abs (ival (ParamId::pitch1 + (uint32_t) i)));
         const float perDegree = 30.0f / (float) widest;
         r.box (4, 14, 312, 66, ink::field);
-        for (int x = 6; x < 314; x += 3) r.dot (x, zero, ink::grid);
+        for (int beat = 0; beat < 4; ++beat)
+        {
+            const int x = left + 4 * wide * beat;
+            const Ink band = beat % 2 ? ink::field : ink::faint;
+            r.box (x, 14, 4 * wide, 109, band);
+            r.box (x, 1, 4 * wide - 2, 11, beat % 2 ? ink::card : ink::grid);
+            r.dotted (x, zero, x + 4 * wide - 1, zero, ink::rule, 3);
+        }
         for (int i = 0; i < steps; ++i)
         {
             const int x = left + i * wide, mid = x + wide / 2;
@@ -604,26 +607,27 @@ private:
             const bool picked = cursor == i;
             const Ink base = ! inCycle ? ink::grid
                            : trig == Trig::rest ? ink::parked
-                           : (trig == Trig::accent || trig == Trig::accentSlide) ? ink::magenta
-                           : (trig == Trig::slide ? ink::teal : ink::soft);
+                           : (trig == Trig::accent || trig == Trig::accentSlide) ? ink::pink
+                           : (trig == Trig::slide ? ink::cyan : ink::soft);
             char n[12];
             std::snprintf (n, sizeof (n), "%d", i + 1);
-            r.centre (mid + 1, 1, n, now ? ink::amber : (picked ? ink::paper : ink::muted));
-            if (now) r.box (x + 1, 14, wide - 2, 66, mix (ink::field, ink::amber, 40));
+            if (now) r.tab (x, 1, wide, 11, ink::acid);
+            r.centre (mid + 1, 1, n, now ? ink::bg : (picked ? ink::paper : ink::muted));
+            if (now) r.box (x + 1, 14, wide - 2, 66, mix (ink::field, ink::acid, 40));
             // Pitch: a bar from the zero line, a cap at the note.
             const int dy = std::clamp ((int) std::lround ((float) degree * perDegree), -30, 30);
             const int top = zero - std::max (dy, 0), bottom = zero - std::min (dy, 0);
-            if (trig != Trig::rest) r.box (mid - 3, top, 7, bottom - top + 1, mix (ink::field, base, 70));
+            if (trig != Trig::rest) r.box (mid - 3, top, 7, bottom - top + 1, mix (ink::field, base, 118));
             r.box (mid - 4, zero - dy - 1, 9, 3, base);
             // Trig: dot, accent diamond, slide arc from the step before.
             constexpr int trigY = 86;
             if (trig == Trig::rest) r.dot (mid, trigY, ink::parked);
             if (trig == Trig::hit) r.disc (mid, trigY, 2, base);
             if (trig == Trig::accent || trig == Trig::accentSlide)
-                for (int k = 0; k <= 3; ++k) r.box (mid - k, trigY - 3 + k, 2 * k + 1, 1, ink::magenta), r.box (mid - k, trigY + 3 - k, 2 * k + 1, 1, ink::magenta);
+                for (int k = 0; k <= 3; ++k) r.box (mid - k, trigY - 3 + k, 2 * k + 1, 1, ink::pink), r.box (mid - k, trigY + 3 - k, 2 * k + 1, 1, ink::pink);
             if (trig == Trig::slide || trig == Trig::accentSlide)
                 for (int k = -wide + 3; k <= 0; ++k)
-                    r.dot (mid + k, trigY + 6 - (int) std::lround (3.0 * std::sin ((double) (k + wide - 3) / (wide - 3) * M_PI)), ink::teal);
+                    r.dot (mid + k, trigY + 6 - (int) std::lround (3.0 * std::sin ((double) (k + wide - 3) / (wide - 3) * M_PI)), ink::cyan);
             // Stroke: its letter.
             const char letter[2] = { "OSBMGFRP"[std::clamp (stroke, 0, 7)], 0 };
             r.centre (mid + 1, 96, letter, inCycle ? strokeInk (stroke) : ink::grid);
@@ -631,15 +635,20 @@ private:
             const int h = (int) std::lround (val (ParamId::chance1 + (uint32_t) i) * 9.0f);
             r.box (mid - 4, 120 - h, 9, h, inCycle ? mix (ink::bg, ink::violet, 150) : ink::grid);
             r.box (mid - 4, 120, 9, 1, ink::grid);
-            if (picked) r.frame (x, 12, wide, 112, ink::paper);
+            if (picked) r.frame (x, 12, wide, 112, ink::cyan);
         }
         // The step picked, in words.
         const int c = cursor;
         char note[16], s[80];
         formatted (ParamId::pitch1 + (uint32_t) c, note);
-        std::snprintf (s, sizeof (s), "STEP %02d  %s  %s  %s  %.0f%%", c + 1, note, trigChoices[std::clamp (ival (ParamId::trig1 + (uint32_t) c), 0, 4)],
+        std::snprintf (s, sizeof (s), "%s  %s  %s  %.0f%%", note, trigChoices[std::clamp (ival (ParamId::trig1 + (uint32_t) c), 0, 4)],
                        strokeChoices[std::clamp (ival (ParamId::stroke1 + (uint32_t) c), 0, 7)], val (ParamId::chance1 + (uint32_t) c) * 100.0f);
-        r.text (8, 128, s, ink::paper);
+        r.box (4, 126, 312, 15, ink::card);
+        r.tab (4, 126, 62, 15, ink::cyan);
+        char stepName[24];
+        std::snprintf (stepName, sizeof (stepName), "STEP %02d", c + 1);
+        r.text (8, 129, stepName, ink::bg);
+        r.text (68, 129, s, ink::paper);
     }
 
     // --- Lists ------------------------------------------------------------------------------------------------------
@@ -657,24 +666,21 @@ private:
             const bool focus = i == row;
             const bool used = page != mode || rowUsed (id);
             const bool held = i >= row && i < row + 3;
-            if (focus)
-            {
-                r.box (4, y, 176, rowH - 1, ink::selected);
-                r.box (4, y, 2, rowH - 1, ink::amber);
-            }
-            else if (held)
-                r.box (4, y + rowH - 2, 2, 1, ink::rule);
+            const Ink band = focus ? ink::acid : ((i - top) % 2 ? ink::bg : ink::field);
+            r.box (3, y, 177, rowH - 1, band);
+            if (held && ! focus) r.box (3, y + 3, 2, 9, ink::violet);
+            if (focus) r.tab (3, y, 8, 11, ink::bg);
             char s[32];
             formatted (id, s);
             const auto& p = paramTable[paramIndex (id)];
-            r.text (10, y + 3, p.name, ! used ? ink::parked : (focus ? ink::paper : ink::muted));
+            r.text (10, y + 3, p.name, focus ? ink::bg : (used ? ink::muted : ink::parked));
             const int end = 176;
             if (focus && editing)
             {
                 const int w = (int) std::strlen (s) * 7;
-                r.frame (end - w - 3, y + 1, w + 6, rowH - 3, ink::amber);
+                r.box (end - w - 3, y + 1, w + 6, rowH - 3, ink::bg);
             }
-            r.right (end, y + 3, s, ! used ? ink::parked : (focus ? ink::paper : ink::soft));
+            r.right (end, y + 3, s, focus ? (editing ? ink::acid : ink::bg) : (used ? ink::paper : ink::parked));
         }
         if (l.count > visible)
         {
@@ -688,6 +694,9 @@ private:
     {
         using namespace hdui;
         r.box (0, 3, 128, 136, ink::field);
+        r.tab (0, 3, page == gate ? 73 : 62, 15, ink::violet);
+        r.box (0, 138, 128, 1, ink::rule);
+        for (int x = 110; x < 126; x += 4) r.line (x, 138, x + 3, 135, ink::violet);
         switch (page)
         {
             case skin: membrane (r); break;
@@ -705,31 +714,39 @@ private:
         using namespace hdui;
         const Body& b = bodies[std::clamp (ival (ParamId::body), 0, bodyCount - 1)];
         const float place = val (ParamId::position);
-        r.text (6, 7, "MODES", ink::muted);
+        r.text (5, 6, "MODES", ink::bg);
         r.right (122, 7, bodyChoices[std::clamp (ival (ParamId::body), 0, bodyCount - 1)], ink::paper);
-        float total = 0.0f, amp[8];
+        float amp[8];
         for (int i = 0; i < 8; ++i)
-            amp[i] = b.centre[i] + (b.edge[i] - b.centre[i]) * place, total += amp[i];
+            amp[i] = b.centre[i] + (b.edge[i] - b.centre[i]) * place;
         const float top = *std::max_element (amp, amp + 8);
+        for (int x = 6; x <= 108; x += 12)
+            r.line (x, 74, x + 12, 67, ink::grid);
+        for (int d = 1; d <= 3; ++d)
+            r.box (6 + d * 3, 74 - d * 2, 105, 1, ink::grid);
         r.box (6, 74, 116, 1, ink::rule);
         for (int i = 0; i < 8; ++i)
         {
             // From 0.4 (a body's air, under the head) to 14 times the fundamental, on a log scale.
             const int x = 6 + (int) std::lround ((std::log2 (b.ratio[i]) - std::log2 (0.4f)) / std::log2 (14.0f / 0.4f) * 112.0f);
             const int h = (int) std::lround (amp[i] / std::max (top, 1e-3f) * 48.0f);
-            const Ink c = mix (ink::ember, ink::hot, (int) (b.decay[i] * 255.0f));
+            const Ink c = mix (ink::lime, ink::hot, (int) (b.decay[i] * 255.0f));
+            r.box (x + 3, 72 - h, 2, h, ink::violet);
             r.box (x, 74 - h, 3, h, c);
+            r.box (x - 1, 73 - h, 6, 2, ink::paper);
         }
-        (void) total;
         char s[32];
         std::snprintf (s, sizeof (s), "%.2f %.2f %.2f", b.ratio[0], b.ratio[1], b.ratio[2]);
         r.text (6, 78, s, ink::parked);
         // The head, and the strike.
         constexpr int hx = 40, hy = 112, hr = 20;
         r.disc (hx, hy, hr, ink::card);
+        r.ring (hx, hy, hr - 2, ink::violet);
+        r.line (hx - hr + 1, hy, hx + hr - 1, hy, ink::grid);
+        r.line (hx, hy - hr + 1, hx, hy + hr - 1, ink::grid);
         r.ring (hx, hy, hr, ink::rule);
         r.ring (hx, hy, hr / 2, ink::grid);
-        r.disc (hx + (int) std::lround (place * (hr - 3)), hy, 3, ink::amber);
+        r.disc (hx + (int) std::lround (place * (hr - 3)), hy, 3, ink::acid);
         formatted (ParamId::ring, s);
         r.text (70, 98, "RING", ink::muted);
         r.text (70, 110, s, ink::paper);
@@ -741,7 +758,7 @@ private:
     void wave (const Raster& r, float light) const
     {
         using namespace hdui;
-        r.text (6, 7, "WAVE", ink::muted);
+        r.text (5, 6, "WAVE", ink::bg);
         char s[24];
         std::snprintf (s, sizeof (s), "x%s", ratioChoices[std::clamp (ival (ParamId::fmRatio), 0, 15)]);
         r.right (122, 7, s, ink::paper);
@@ -754,6 +771,9 @@ private:
         const float foldMix = std::clamp (20.0f * (depth + std::fabs (val (ParamId::symmetry))), 0.0f, 1.0f);
         const float ratio = ratioValues[std::clamp (ival (ParamId::fmRatio), 0, 15)];
         constexpr int x0 = 6, cy = 58, amp = 34;
+        for (int x = x0; x < x0 + 116; x += 8)
+            for (int y = cy - 32; y <= cy + 32; y += 8)
+                r.dot (x, y, ink::rule);
         r.box (x0, cy, 116, 1, ink::grid);
         int last = cy;
         for (int x = 0; x < 116; ++x)
@@ -762,7 +782,17 @@ private:
             float y = sinTurns (ph + pm * sinTurns (ph * ratio));
             y += foldMix * (sinTurns (g * y + bias) - sinTurns (bias) - y);
             const int py = cy - (int) std::lround (y * (float) amp);
-            r.line (x0 + x - (x > 0), last, x0 + x, py, ink::amber);
+            for (int depth = 1; depth <= 3; ++depth)
+            {
+                const int offset = depth * 3;
+                const int farY = 84 + offset;
+                const int scale = 5 - depth;
+                const int a = farY + (last - 84) * scale / 5;
+                const int b = farY + (py - 84) * scale / 5;
+                const int farX = x0 + offset + x * (116 - 2 * offset) / 116;
+                r.line (farX - (x > 0), a, farX, b, depth == 1 ? ink::violet : ink::rule);
+            }
+            r.line (x0 + x - (x > 0), last, x0 + x, py, ink::acid);
             last = py;
         }
         formatted (ParamId::timbre, s);
@@ -783,7 +813,7 @@ private:
         const GateCircuit circuit = gateCircuit (val (ParamId::gateMode), val (ParamId::resonance));
         const float shown = std::max (light, openLight (val (ParamId::open)));
         const GateResponse g = gateResponse (ldrOhms (std::max (shown, 0.002f)), circuit);
-        r.text (6, 7, "RESPONSE", ink::muted);
+        r.text (5, 6, "RESPONSE", ink::bg);
         char s[24];
         formatted (ParamId::gateMode, s);
         r.right (122, 7, s, ink::paper);
@@ -802,8 +832,10 @@ private:
             const double hz = 20.0 * std::pow (1000.0, (double) x / (w - 1));
             const double db = gateDb (g, hz);
             const int y = y0 + std::clamp ((int) std::lround ((12.0 - db) / 60.0 * hgt), 0, hgt - 1);
-            r.box (x0 + x, y, 1, y0 + hgt - y, mix (ink::field, ink::ember, 60));
-            if (last >= 0) r.line (x0 + x - 1, last, x0 + x, y, light > 2e-4f ? ink::amber : ink::muted);
+            if ((x & 1) == 0)
+                for (int j = y + 2 + (x & 2); j < y0 + hgt; j += 4)
+                    r.dot (x0 + x, j, ink::rule);
+            if (last >= 0) r.line (x0 + x - 1, last, x0 + x, y, light > 2e-4f ? ink::acid : ink::muted);
             last = y;
         }
         // The light's trail: newest on the right.
@@ -816,8 +848,8 @@ private:
             const float v = tel.lightTrail[i].load (std::memory_order_relaxed);
             const float level = std::clamp ((std::log10 (std::max (v, 1e-4f)) + 4.0f) / 4.0f, 0.0f, 1.0f);
             const int hgtBar = (int) std::lround (level * th);
-            for (int y = 0; y < hgtBar; ++y)
-                r.dot (x0 + x, ty + 10 + th - 1 - y, orbInk (8 + (y * 56) / th));
+            r.box (x0 + x, ty + 10 + th - hgtBar, 1, hgtBar, mix (ink::field, ink::violet, 115));
+            if (hgtBar) r.dot (x0 + x, ty + 10 + th - hgtBar, ink::cyan);
         }
         r.box (x0, ty + 10 + th, w, 1, ink::rule);
     }
@@ -826,7 +858,7 @@ private:
     void effects (const Raster& r) const
     {
         using namespace hdui;
-        r.text (6, 7, "CHAIN", ink::muted);
+        r.text (5, 6, "CHAIN", ink::bg);
         const char* names[4] = { "DRIVE", "CRUSH", "ECHO", "SPACE" };
         const uint32_t ids[4] = { ParamId::drive, ParamId::crush, ParamId::echo, ParamId::space };
         for (int k = 0; k < 4; ++k)
@@ -834,8 +866,12 @@ private:
             const int y = 22 + k * 18;
             const float v = val (ids[k]);
             r.frame (6, y, 116, 15, v > 0.0f ? ink::rule : ink::grid);
-            r.box (7, y + 1, (int) std::lround (v * 114.0f), 13, mix (ink::field, ink::amber, 40 + (int) (v * 90.0f)));
-            r.text (11, y + 2, names[k], v > 0.0f ? ink::paper : ink::parked);
+            r.box (7, y + 1, (int) std::lround (v * 114.0f), 13, mix (ink::field, ink::acid, 40 + (int) (v * 90.0f)));
+            constexpr Ink stages[] = { ink::pink, ink::violet, ink::cyan, ink::acid };
+            r.tab (7, y + 1, 12, 13, v > 0.0f ? stages[k] : ink::rule);
+            for (int x = 90; x < 116; x += 5)
+                r.line (x, y + 11, x + 3, y + 5, ink::grid);
+            r.text (23, y + 2, names[k], v > 0.0f ? ink::paper : ink::parked);
         }
         // The echo: a tap every Echo Time, each Repeats as loud, alternating sides.
         const float fb = 1.05f * val (ParamId::repeats);
@@ -843,7 +879,7 @@ private:
         for (int n = 0; n < 7 && level > 0.03f; ++n)
         {
             const int x = 12 + n * 16, h = (int) std::lround (level * 24.0f);
-            r.box (x, 124 - h, 5, h, n % 2 ? ink::teal : ink::amber);
+            r.box (x, 124 - h, 5, h, n % 2 ? ink::cyan : ink::acid);
             level *= std::min (fb, 1.0f);
         }
         char s[24];
@@ -857,7 +893,8 @@ private:
     {
         using namespace hdui;
         const int m = modeNow(), len = cycleLength();
-        r.text (6, 7, seqModeChoices[m], ink::paper);
+        r.tab (0, 3, 84, 15, ink::violet);
+        r.text (5, 6, seqModeChoices[m], ink::bg);
         char s[32];
         switch (m)
         {
@@ -867,31 +904,46 @@ private:
             {
                 constexpr int cx = 64, cy = 74, rad = 42;
                 r.ring (cx, cy, rad, ink::grid);
+                const Circle& c = circleFor (len);
+                int firstOn = -1, lastOn = -1;
+                auto chord = [&] (int a, int b) {
+                    const int radius = rad - 6;
+                    r.line (cx + (int) std::lround (c.x[a] * radius), cy + (int) std::lround (c.y[a] * radius),
+                            cx + (int) std::lround (c.x[b] * radius), cy + (int) std::lround (c.y[b] * radius), ink::violet);
+                };
                 const int pulses = (int) std::lround (val (ParamId::density) * (float) len);
                 int count = 0;
                 for (int i = 0; i < len; ++i)
                 {
-                    const float a = -1.5707963f + 6.2831853f * (float) i / (float) len;
-                    const int x = cx + (int) std::lround ((float) rad * std::cos (a)), y = cy + (int) std::lround ((float) rad * std::sin (a));
+                    const int x = cx + (int) std::lround (rad * c.x[i]), y = cy + (int) std::lround (rad * c.y[i]);
                     const Glyph g = glyphAt (i, len);
-                    count += g.on;
+                    if (g.on)
+                    {
+                        if (firstOn < 0) firstOn = i;
+                        if (lastOn >= 0) chord (lastOn, i);
+                        lastOn = i;
+                        ++count;
+                    }
                     const bool now = running && place == i;
                     if (m == SeqMode::rhythm && g.on)
                     {
                         const char letter[2] = { "OSBMG"[std::clamp (g.stroke, 0, 4)], 0 };
-                        r.disc (x, y, 6, now ? ink::amber : ink::card);
+                        r.disc (x, y, 6, now ? ink::acid : ink::card);
                         r.centre (x + 1, y - 5, letter, now ? ink::bg : strokeInk (g.stroke));
                     }
                     else if (g.on)
-                        r.disc (x, y, g.accent ? 5 : 4, now ? ink::hot : (g.accent ? ink::magenta : ink::soft));
+                        r.disc (x, y, g.accent ? 5 : 4, now ? ink::hot : (g.accent ? ink::pink : ink::soft));
                     else
-                        r.disc (x, y, 1, now ? ink::amber : ink::parked);
-                    if (now) r.line (cx, cy, x, y, mix (ink::field, ink::amber, 120));
+                        r.disc (x, y, 1, now ? ink::acid : ink::parked);
+                    if (now) r.line (cx, cy, x, y, mix (ink::field, ink::acid, 120));
                 }
+                if (count > 2) chord (lastOn, firstOn);
                 if (m == SeqMode::euclid) std::snprintf (s, sizeof (s), "E(%d,%d)", pulses, len);
                 else if (m == SeqMode::rhythm) std::snprintf (s, sizeof (s), "%s", rhythmChoices[std::clamp (ival (ParamId::rhythm), 0, rhythmCount - 1)]);
                 else std::snprintf (s, sizeof (s), "%d/%d", count, len);
-                r.centre (cx, cy - 6, s, ink::soft);
+                const int width = (int) std::strlen (s) * font::glyphWidth;
+                r.box (cx - width / 2 - 3, cy - 7, width + 6, 13, ink::field);
+                r.centre (cx, cy - 6, s, ink::paper);
                 break;
             }
             case SeqMode::turing:
@@ -902,7 +954,7 @@ private:
                 {
                     const int x = 6 + (i % 8) * 15, y = 34 + (i / 8) * 18;
                     const bool on = ((bits >> (len - 1 - i)) & 1u) != 0;
-                    r.box (x, y, 12, 14, on ? ink::amber : ink::card);
+                    r.box (x, y, 12, 14, on ? ink::acid : ink::card);
                     if (i == len - 1) r.frame (x - 1, y - 1, 14, 16, ink::paper);
                 }
                 const float lock = 1.0f - val (ParamId::mutate);
@@ -924,7 +976,7 @@ private:
                     const uint32_t cells = tel.generations[g % Telemetry::history].load (std::memory_order_relaxed);
                     for (int i = 0; i < len; ++i)
                         if ((cells >> i) & 1u)
-                            r.box (6 + i * cell, 24 + row * 6, cell - 1, 5, row == Telemetry::history - 1 ? ink::amber : mix (ink::field, ink::violet, 60 + row * 12));
+                            r.box (6 + i * cell, 24 + row * 6, cell - 1, 5, row == Telemetry::history - 1 ? ink::acid : mix (ink::field, ink::violet, 60 + row * 12));
                 }
                 if (running && place >= 0) r.box (6 + place * cell, 122, cell - 1, 2, ink::paper);
                 std::snprintf (s, sizeof (s), "RULE %d", ival (ParamId::rule));
@@ -948,7 +1000,7 @@ private:
                     {
                         const float t = (float) k / std::max (1.0f, wdt);
                         const int y = 110 - (int) std::lround (h * 4.0f * t * (1.0f - t));
-                        r.line (6 + (int) (x + (float) k) - (k > 0), lastY, 6 + (int) (x + (float) k), y, j == 0 ? ink::amber : ink::soft);
+                        r.line (6 + (int) (x + (float) k) - (k > 0), lastY, 6 + (int) (x + (float) k), y, j == 0 ? ink::acid : ink::soft);
                         lastY = y;
                     }
                     r.disc (6 + (int) x, 110, 2, ink::paper);
@@ -966,17 +1018,19 @@ private:
     void cards (const Raster& r, const Host& h) const
     {
         using namespace hdui;
-        const Ink track = h.accent ? (h.accent | 0xff000000u) : ink::amber;
+        const Ink track = h.accent ? (h.accent | 0xff000000u) : ink::acid;
         for (int k = 0; k < 3; ++k)
         {
-            const int x = 4 + 105 * k;
+            const int x = 3 + 105 * k;
             const uint32_t id = cardField (k);
-            r.box (x, 3, 102, 42, ink::card);
+            r.box (x, 1, 103, 44, ink::card);
+            r.box (x, 1, 103, 14, ink::soft);
+            r.tab (x, 1, 23, 14, ink::bg);
             const char tag[] = { 'K', char ('1' + k), 0 };
-            r.text (x + 4, 6, tag, ink::muted);
+            r.text (x + 3, 3, tag, ink::acid);
             if (id == noParam) continue;
             const auto& p = paramTable[paramIndex (id)];
-            r.text (x + 22, 6, p.name, ink::paper);
+            r.text (x + 23, 3, p.name, ink::bg);
             if (p.kind == Kind::button)
             {
                 r.text (x + 4, 21, "Push", ink::soft);
@@ -984,14 +1038,15 @@ private:
             }
             char s[32];
             formatted (id, s);
-            r.text (x + 4, 20, s, ink::hot);
+            r.text (x + 5, 19, s, ink::paper);
             const int start = x + 5, w = 92, rail = 37;
             const float unit = (val (id) - p.min) / (p.max - p.min);
             const int at = start + (int) std::lround (unit * (float) (w - 1));
             r.box (start, rail, w, 2, ink::rule);
             const int origin = p.min < 0 ? start + (w - 1) / 2 : start;
             r.box (std::min (at, origin), rail, std::abs (at - origin) + 1, 2, track);
-            r.box (at, rail - 2, 2, 6, track);
+            for (int tick = 1; tick < 8; ++tick) r.dot (start + w * tick / 8, rail + 3, ink::rule);
+            r.box (at, rail - 2, 2, 6, ink::paper);
             if (h.pot[k] >= 0 && ! h.engaged[k])
             {
                 const int pos = start + std::clamp ((int) h.pot[k], 0, 127) * (w - 1) / 127;
@@ -1014,10 +1069,10 @@ private:
         else shifted[1] = "Buttons press";
         for (int k = 0; k < 3; ++k)
         {
-            const int x = 4 + 105 * k;
-            r.box (x, 3, 102, 42, ink::field);
-            r.box (x, 3, 2, 42, ink::amber);
-            r.text (x + 6, 6, top[k], ink::muted);
+            const int x = 3 + 105 * k;
+            r.box (x, 1, 103, 44, ink::card);
+            r.tab (x, 1, 103, 14, ink::soft);
+            r.text (x + 5, 3, top[k], ink::bg);
             r.text (x + 6, 19, plain[k], ink::paper);
             r.text (x + 6, 31, shifted[k], ink::soft);
         }

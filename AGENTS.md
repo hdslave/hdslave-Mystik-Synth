@@ -42,3 +42,4 @@ Read `../AGENTS.md`, then `../Workflow/plugins.md` and `../Workflow/host-facts.m
 - The gate follows a published vactrol gate model, realised as a TPT state-variable filter. The host tests hold it to the analog response within 0.35 dB.
 - Per-tick state is relative to the strike. The idle fast path counts skipped control ticks exactly; keep it that way, or block sizes start to differ.
 - The factory presets keep the 0.1 values on purpose, Volumes included. Don't rebalance them unless asked.
+- **Pads.** With Sequencer On (playing or stopped), keys 36-51 play steps 1-16 as Notes: Steps does, without moving the sequence or the transposition. Other keys keep their old roles, and Sequencer Off gives the Notes keyboard back. A pad waits for its frame's audio (`Engine::playPad` in `render`): the louder of two on one frame plays once, and a step the sequence plays on that frame wins. The `pads` tests in `tests/host.cpp` hold it.

@@ -33,7 +33,7 @@ Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool
 ## Install
 
 Copy `Mystik.clap` (built as below, or from the card's staging) to the card as
-`Melodee/Plugins/hdslave Mystik/hdslave Mystik.clap`, with this README and `LICENSE-OFL-departure-mono.txt`.
+`Melodee/Plugins/hdslave/hdslave Mystik.clap`, with this README and `LICENSE-OFL-departure-mono.txt`.
 Load it on a plug-in track. The page shows on Edit and Stage's EDIT under hdslaveOS.
 
 ## Playing it

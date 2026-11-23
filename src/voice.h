@@ -292,8 +292,8 @@ public:
         const double bendTau = std::min (0.15, std::max (0.012, (double) fundamentalT60 / 13.8));
         bendDecay = (float) std::exp (-8.0 / (bendTau * fs));
         pressTarget = h.stroke == Stroke::press ? 2.0f + 5.0f * std::fabs (knobs.bend) : 0.0f;
-        if (h.stroke != Stroke::press)
-            pressSemis = 0.0f;
+        // pressSemis is left where it is (control() walks it to pressTarget): an interrupting stroke lets the
+        // bend fall back at the press's own rate, not snap to the unbent pitch over a ringing head.
         if (idle)
             wake();
         lastF0 = -1.0f; // the membrane's angles and decays again

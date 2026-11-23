@@ -55,6 +55,7 @@ struct Plugin
     // state is loaded or the page edits. The engine notices those at the next block.
     std::atomic<float> values[paramCount];
     std::atomic<bool> mainChanged { false };
+    std::atomic<bool> settleWanted { false }; // a whole state or preset landed: settle on it, don't ease
     float applied[paramCount] {};
     Telemetry telemetry;
     Engine engine { &telemetry };
@@ -347,7 +348,9 @@ bool readAll (const clap_istream* s, void* data, uint64_t size)
 }
 
 // Every value at once, from the main thread (a state or a preset loaded). Edits the page still had to tell are
-// dropped: the loaded values win.
+// dropped: the loaded values win. The voice settles on them whole at the next block. The sequencer's own state
+// (its place, its modes' memory, hits still queued, held keys) is the performance's, not the patch's, and
+// survives the load; a new Seed, Rule or Seq Mode among the values reseeds it through Engine::set as usual.
 void setAll (Plugin& p, const float* values)
 {
     p.outgoing.clear();
@@ -355,6 +358,7 @@ void setAll (Plugin& p, const float* values)
     p.audition.store (-1, std::memory_order_relaxed);
     for (uint32_t i = 0; i < paramCount; ++i)
         p.values[i].store (values[i], std::memory_order_relaxed);
+    p.settleWanted.store (true, std::memory_order_release);
     p.mainChanged.store (true, std::memory_order_release);
     if (! p.active)
         for (uint32_t i = 0; i < paramCount; ++i)
@@ -553,23 +557,38 @@ clap_process_status pluginProcess (const clap_plugin* plugin, const clap_process
 
     // Values the main thread changed (a state, a preset, the page): looked through only when it wrote some.
     if (p.mainChanged.exchange (false, std::memory_order_acquire))
+    {
         for (uint32_t i = 0; i < paramCount; ++i)
         {
             const float v = p.values[i].load (std::memory_order_relaxed);
             if (v != p.applied[i] && paramTable[i].kind != Kind::button)
                 p.applied[i] = v, p.engine.set (paramTable[i].id, v), p.valuesMoved = true;
         }
+        if (p.settleWanted.exchange (false, std::memory_order_acquire))
+            p.engine.settle();
+    }
     tellHost (p, process->out_events, 0);
 
-    // Events at the block's first frame come first, then the page's presses, then the transport: a setting sent with
-    // Play is in place for what Play does.
+    // Events at the block's first frame, in their order of meaning: settings first (a setting sent with Play is in
+    // place for what Play does), then the transport, then notes and the page's presses (what a note does depends
+    // on whether the song is playing under it). hdslaveOS sends every MIDI event of a block at its first frame.
     const auto* in = process->in_events;
     const uint32_t count = in != nullptr ? in->size (in) : 0;
-    uint32_t next = 0;
     const uint32_t lastFrame = frames > 0 ? frames - 1 : 0;
-    for (; next < count && in->get (in, next)->time == 0; ++next)
-        handle (p, in->get (in, next), process->out_events, lastFrame);
-    takePresses (p);
+    auto setting = [] (const clap_event_header* e) {
+        if (e->space_id != CLAP_CORE_EVENT_SPACE_ID || e->type == CLAP_EVENT_PARAM_VALUE)
+            return true;
+        if (e->type != CLAP_EVENT_MIDI)
+            return false;
+        const uint8_t status = reinterpret_cast<const clap_event_midi*> (e)->data[0] & 0xf0;
+        return status != 0x80 && status != 0x90; // the wheel and CCs set; MIDI notes play
+    };
+    uint32_t at0 = 0;
+    while (at0 < count && in->get (in, at0)->time == 0)
+        ++at0;
+    for (uint32_t i = 0; i < at0; ++i)
+        if (setting (in->get (in, i)))
+            handle (p, in->get (in, i), process->out_events, lastFrame);
 
     if (const auto* t = process->transport)
     {
@@ -583,6 +602,12 @@ clap_process_status pluginProcess (const clap_plugin* plugin, const clap_process
     }
     else
         p.engine.transport (false, 0.0, 120.0, frames);
+
+    for (uint32_t i = 0; i < at0; ++i)
+        if (! setting (in->get (in, i)))
+            handle (p, in->get (in, i), process->out_events, lastFrame);
+    takePresses (p);
+    uint32_t next = at0;
 
     uint32_t done = 0;
     while (done < frames)

@@ -83,6 +83,7 @@ public:
         now = 0;
         clockedAt = -(int64_t (1) << 40);
         clockedLoud = false;
+        clockSnapshot = false;
         queueSize = 0;
         held = 0;
         padStep = -1;
@@ -92,6 +93,9 @@ public:
         lightCounter = 0;
         voiceDirty = fxDirty = true;
     }
+
+    // A state or a preset landed while it sounds: the voice takes its knobs at once (see Voice::settle).
+    void settle() { voice.settle(); }
 
     // A parameter's value, from the frame the next render starts.
     void set (uint32_t id, float v)
@@ -435,8 +439,35 @@ private:
         if (jumped && std::fabs ((double) ((int64_t) now - clockedAt) - late) <= 2.0)
         {
             lastStep = b;
-            if (! clockedLoud)
-                clock (b);
+            if (! clockedLoud && clockSnapshot)
+            {
+                // That step was silent, but deciding it moved the modes' state on (Turing's register, Brownian's
+                // walk, the automaton's generations). Decide b once, from the state that step was decided from,
+                // so the state moves on once for the step, as if the wrap had been told on time.
+                st = preClockState;
+                if (reseed) // a new Seed, Rule or Mode landed with this block: clock(b) would have started from it
+                {
+                    st = initialState (b);
+                    reseed = false;
+                    shownGeneration = ~0u;
+                    if (telemetry != nullptr)
+                        for (auto& g : telemetry->generations) g.store (0, std::memory_order_relaxed);
+                    preClockState = st;
+                }
+                const Decision d = decide (b, st);
+                st.fresh = false;
+                shownPlace = d.place;
+                shownCycle = length();
+                clockedAt = (int64_t) now, clockedLoud = d.play;
+                if (d.play)
+                {
+                    padStep = -1;
+                    padSounding = false;
+                    if (padHitsQueued)
+                        dropPadHits();
+                    playDecision (d, b);
+                }
+            }
             return;
         }
         lastStep = b - (late < window ? 1 : 0);
@@ -672,6 +703,7 @@ private:
             if (telemetry != nullptr)
                 for (auto& g : telemetry->generations) g.store (0, std::memory_order_relaxed);
         }
+        preClockState = st, clockSnapshot = true; // a wrap told late decides this step again from here (relocate)
         const Decision d = decide (k, st);
         st.fresh = false;
         shownPlace = d.place;
@@ -704,13 +736,14 @@ private:
             bounce (h, k);
             return;
         }
-        strikeWithStroke (h, stepFrames);
+        strikeWithStroke (h, stepFrames, k);
         if (k >= 0)
             enqueue (now + (uint64_t) std::max (1.0, knob[ParamId::gate] * stepFrames), Queued::release, Hit {}, k);
     }
 
-    // Flam and Roll are further hits; the rest strike once.
-    void strikeWithStroke (const Hit& h, double stepFrames = 0.0)
+    // Flam and Roll are further hits; the rest strike once. `k` is the sequence's clock for a step's hits (-1: a
+    // key's, a pad's or the page's, which are the player's own and complete across a Stop; see releaseGate).
+    void strikeWithStroke (const Hit& h, double stepFrames = 0.0, int64_t k = -1)
     {
         if (stepFrames <= 0.0)
             stepFrames = rate * 0.125;
@@ -721,7 +754,7 @@ private:
             voice.strike (grace);
             Hit main = h;
             main.stroke = Stroke::open, main.follow = true;
-            enqueue (now + (uint64_t) std::lround (0.022 * rate), Queued::hit, main, padPlaying ? padClock : -1);
+            enqueue (now + (uint64_t) std::lround (0.022 * rate), Queued::hit, main, padPlaying ? padClock : -1, k >= 0);
             return;
         }
         if (h.stroke == Stroke::roll && ! h.slide)
@@ -737,7 +770,7 @@ private:
                 if (i == 0)
                     voice.strike (r);
                 else
-                    enqueue (now + (uint64_t) std::lround (at), Queued::hit, r, padPlaying ? padClock : -1);
+                    enqueue (now + (uint64_t) std::lround (at), Queued::hit, r, padPlaying ? padClock : -1, k >= 0);
                 at += gap, gap *= 0.7;
             }
             return;
@@ -770,7 +803,7 @@ private:
             if (j == 0)
                 voice.strike (h);
             else
-                enqueue (now + (uint64_t) std::max (1.0, at + jitter), Queued::hit, h, -1);
+                enqueue (now + (uint64_t) std::max (1.0, at + jitter), Queued::hit, h, -1, true);
             at += gap, gap *= r;
         }
         enqueue (now + (uint64_t) std::max (1.0, 0.95 * cycle), Queued::release, Hit {}, -1);
@@ -784,8 +817,9 @@ private:
         Kind kind;
         Hit h;
         int64_t clock;
+        bool sequenced; // the sequence's own hit (a step's flam, roll or bounce): it dies with Stop (releaseGate)
     };
-    void enqueue (uint64_t at, Queued::Kind kind, const Hit& h, int64_t k)
+    void enqueue (uint64_t at, Queued::Kind kind, const Hit& h, int64_t k, bool sequenced = false)
     {
         if (queueSize == queueCapacity)
             return;
@@ -793,7 +827,7 @@ private:
         int i = queueSize++;
         while (i > 0 && queue[i - 1].at > at)
             queue[i] = queue[i - 1], --i;
-        queue[i] = { at, kind, h, k };
+        queue[i] = { at, kind, h, k, sequenced };
     }
     void fireQueued()
     {
@@ -819,10 +853,13 @@ private:
         if (held == 0 || (seqOn() && playing))
             voice.release();
     }
+    // The gate ends now (Stop, or the Sequencer switched off): its queued ends go, and with them the sequence's
+    // own hits still to come (a roll's, a bounce's), which belong to the playing that just stopped. A key's, a
+    // step pad's or the page's further hits stay: they are live playing, which a Stop does not choke.
     void releaseGate()
     {
         for (int i = 0; i < queueSize; ++i)
-            if (queue[i].kind == Queued::release)
+            if (queue[i].kind == Queued::release || queue[i].sequenced)
             {
                 for (int j = i; j + 1 < queueSize; ++j)
                     queue[j] = queue[j + 1];
@@ -906,6 +943,8 @@ private:
     uint64_t now = 0;
     uint32_t lastBlock = 0, regenerations = 0;
     SeqState st;
+    SeqState preClockState; // `st` as the last clock found it, for deciding that step again on a late wrap
+    bool clockSnapshot = false;
     float transpose = 0.0f;
     int heldKeys[16] {};
     int held = 0;

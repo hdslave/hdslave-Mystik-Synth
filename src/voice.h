@@ -198,6 +198,10 @@ public:
             wake();
     }
 
+    // A state or a preset loaded over a sounding voice: its knobs land whole at the next control tick instead of
+    // easing (the easing is for a knob turned by hand).
+    void settle() { smoothed = false; }
+
     // A strike (or a slide into a new pitch).
     void strike (const Hit& h)
     {

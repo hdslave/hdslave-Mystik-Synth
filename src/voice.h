@@ -353,8 +353,6 @@ public:
     // For the screen and tests.
     float lightLevel() const { return light; }
     uint32_t strikeCount() const { return strikes; }
-    bool isIdle() const { return idle && decimator.silent(); }
-    float frequency() const { return lastF0; }
     float lastStrikeForce() const { return lastForce; }
     bool lastStrikeAccented() const { return lastAccent; }
 

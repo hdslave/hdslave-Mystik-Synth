@@ -311,10 +311,8 @@ public:
         publish();
     }
 
-    float knobValue (uint32_t id) const { return knob[id]; }
     uint32_t strikeCount() const { return voice.strikeCount(); }
     float light() const { return voice.lightLevel(); }
-    bool silent() const { return voice.isIdle() && fx.quiet(); }
     int place() const { return shownPlace; }
 
 private:
@@ -579,7 +577,7 @@ private:
             }
             case SeqMode::turing:
             {
-                const uint32_t mask = len >= 32 ? 0xffffffffu : (1u << len) - 1u;
+                const uint32_t mask = (1u << len) - 1u; // len is at most 16 (length())
                 const uint32_t out = (s.turing >> (len - 1)) & 1u;
                 const uint32_t flip = unit (k, sd ^ 0x27d4eb2fu) < mutate * 0.5f ? 1u : 0u;
                 s.turing = ((s.turing << 1) | (out ^ flip)) & mask;
@@ -685,7 +683,7 @@ private:
         SeqState s;
         const int len = length();
         s.walk = (int) (((k % len) + len) % len) - 1;
-        s.turing = bits32 ((int64_t) knob[ParamId::seed], 0x8f1bbcdcu) & (len >= 32 ? 0xffffffffu : (1u << len) - 1u);
+        s.turing = bits32 ((int64_t) knob[ParamId::seed], 0x8f1bbcdcu) & ((1u << len) - 1u);
         s.cells = seedCells (len, 0);
         s.born = s.cells;
         s.generation = 0;

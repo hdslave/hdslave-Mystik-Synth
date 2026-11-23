@@ -47,7 +47,7 @@ constexpr PresetValue westBongo[] = { { human, 0.0f },
 
 // A tabla theka: the rhythm's strokes, the bayan's low dha an octave under (its steps' Pitch at -7 in Bhairav).
 constexpr PresetValue tablaTeental[] = { { human, 0.0f },
-    { body, 0.0f }, { tune, 12.0f }, { source, 0.85f }, { ring, 0.55f }, { position, 0.4f }, { snap, 0.15f }, { bend, 0.25f },
+    { body, 0.0f }, { source, 0.85f }, { ring, 0.55f }, { position, 0.4f }, { snap, 0.15f }, { bend, 0.25f },
     { fmIndex, 0.1f }, { timbre, 0.05f }, { decay, 0.35f }, { tune, 14.0f }, { seqMode, 5.0f }, { rhythm, 11.0f }, { rate, 3.0f }, { scale, 6.0f },
     { accents, 0.4f }, { echo, 0.0f }, { space, 0.12f },
     { pitch1 + 0, -7 }, { pitch1 + 3, -7 }, { pitch1 + 4, -7 }, { pitch1 + 7, -7 }, { pitch1 + 8, -7 }, { pitch1 + 15, -7 },

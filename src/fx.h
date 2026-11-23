@@ -156,8 +156,6 @@ public:
     // A choke: the drum stops at once, so the DC blocker's memory of it goes too (or it would thump on); echoes ring on.
     void cut() { dcIn = dcOut = 0.0f; }
 
-    bool quiet() const { return echoQuiet > mask && springQuiet > springMask; }
-
 private:
     // The echo's loop: exactly linear below 0.75 (a repeat is not squeezed), then a tanh knee toward 1 (Repeats over
     // 100 % runs away into it, held).

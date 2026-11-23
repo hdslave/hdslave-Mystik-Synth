@@ -444,31 +444,11 @@ private:
             if (! clockedLoud && clockSnapshot)
             {
                 // That step was silent, but deciding it moved the modes' state on (Turing's register, Brownian's
-                // walk, the automaton's generations). Decide b once, from the state that step was decided from,
-                // so the state moves on once for the step, as if the wrap had been told on time.
+                // walk, the automaton's generations). Clock b from the state that step was decided from, by the
+                // clock's own road (its Sequencer switch, a fresh start, a new Seed), so the state moves on once
+                // for the step, as if the wrap had been told on time.
                 st = preClockState;
-                if (reseed) // a new Seed, Rule or Mode landed with this block: clock(b) would have started from it
-                {
-                    st = initialState (b);
-                    reseed = false;
-                    shownGeneration = ~0u;
-                    if (telemetry != nullptr)
-                        for (auto& g : telemetry->generations) g.store (0, std::memory_order_relaxed);
-                    preClockState = st;
-                }
-                const Decision d = decide (b, st);
-                st.fresh = false;
-                shownPlace = d.place;
-                shownCycle = length();
-                clockedAt = (int64_t) now, clockedLoud = d.play;
-                if (d.play)
-                {
-                    padStep = -1;
-                    padSounding = false;
-                    if (padHitsQueued)
-                        dropPadHits();
-                    playDecision (d, b);
-                }
+                clock (b);
             }
             return;
         }

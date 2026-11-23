@@ -4,6 +4,8 @@
 
 ![Mystik seven acid-rave pages running in hdslaveOS](docs/mystik-pages.gif)
 
+> **Desktop version (macOS & Windows):** Looking to run this plug-in on your computer in FL Studio or another CLAP host with an expanded high-resolution control panel and MIDI Learn? Get the full 11-plug-in desktop suite at [**hdslave-Synths-and-drum-machines-Mac-Win**](https://github.com/hdslave/hdslave-Synths-and-drum-machines-Mac-Win).
+
 Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Mystik pairs an 8-mode physical membrane (nine bodies from tabla to iron bell) and a wavefolding complex oscillator — struck by eight hand strokes through a modelled 292 vactrol low-pass gate — with a six-mode sequencer, four lo-fi effects, and seven acid-rave custom pages under **hdslaveOS** (other hosts show the standard parameter list).
 
 ![All seven Mystik pages overview](docs/pages.png)

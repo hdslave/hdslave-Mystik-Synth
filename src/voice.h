@@ -292,10 +292,11 @@ public:
         const double bendTau = std::min (0.15, std::max (0.012, (double) fundamentalT60 / 13.8));
         bendDecay = (float) std::exp (-8.0 / (bendTau * fs));
         pressTarget = h.stroke == Stroke::press ? 2.0f + 5.0f * std::fabs (knobs.bend) : 0.0f;
-        // pressSemis is left where it is (control() walks it to pressTarget): an interrupting stroke lets the
-        // bend fall back at the press's own rate, not snap to the unbent pitch over a ringing head.
+        // Over a head still ringing, pressSemis is left where it is (control() walks it to pressTarget): an
+        // interrupting stroke lets the bend fall back at the press's own rate, not snap to the unbent pitch.
+        // From silence nothing rings for it to fall over: the fresh hit starts unbent.
         if (idle)
-            wake();
+            pressSemis = 0.0f, wake();
         lastF0 = -1.0f; // the membrane's angles and decays again
         modesDirty = true;
         gateDirty = true;
@@ -306,11 +307,12 @@ public:
 
     void release() { held = false; }
 
-    // A choke: silence now (a cut, Melodee's all sound off).
+    // A choke: silence now (a cut, Melodee's all sound off). A press's bend ends with the sound.
     void choke()
     {
         light = 0.0f;
         strikeLeft = 0;
+        pressSemis = pressTarget = 0.0f;
         held = false;
         exciting = false;
         mu0 = mu1 = mv0 = mv1 = splat (0.0f);

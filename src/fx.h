@@ -27,7 +27,7 @@ public:
         while ((double) n < 2.6 * hostRate)
             n <<= 1;
         if (echoL.size() != n)
-            echoL.assign (n, 0.0f), echoR.assign (n, 0.0f), echoClearAt = (uint32_t) n; // new lines: all silence
+            echoL.assign (n, 0.0f), echoR.assign (n, 0.0f); // new lines: all silence
         mask = (uint32_t) n - 1;
         // The tank's lines: 37.1 and 41.7 ms (never in step), each under a power of two.
         springLength[0] = std::max (1, (int) std::lround (0.0371 * hostRate));
@@ -47,7 +47,7 @@ public:
 
     // Back to silence. It may come many times at once (Melodee's All Sound Off is sent on all 16 channels), so it costs
     // nothing when there is nothing to clear: the tank's lines are cleared only if they hold something, and the echo's
-    // (up to 2 MiB) are left to clear over the next blocks, or at once if sound comes first (see process()).
+    // (up to 2 MiB) are not cleared at all: places not written since count as silence when read (echoWritten).
     void reset()
     {
         if (springQuiet <= springMask) // ringing (once quiet for a line's length they are all zeros)
@@ -55,8 +55,7 @@ public:
                 std::fill (line.begin(), line.end(), 0.0f);
         for (int k = 0; k < 8; ++k)
             apEven[k] = apOdd[k] = v2 { 0.0f, 0.0f };
-        if (echoQuiet <= mask) // ringing: anything in the lines may be sound, all of it to clear
-            echoClearAt = 0;
+        echoWritten = 0;
         write = springWrite = 0;
         echoQuiet = springQuiet = 1u << 30;
         absorbL = absorbR = hpInL = hpInR = hpOutL = hpOutR = 0.0f;
@@ -89,11 +88,6 @@ public:
     // In: the voice in `left` (`silentIn`: all zeros). Out: both sides.
     void process (float* left, float* right, uint32_t frames, bool silentIn)
     {
-        // What an ended tail (or a reset) left in the echo's lines goes a share at a time: 64 floats a side a frame, the
-        // whole line in about 43 ms at any rate. Nothing reads them before they are all zeros (echo() clears the rest
-        // at once if sound comes first).
-        if (echoQuiet > mask && echoClearAt <= mask)
-            clearEcho ((uint32_t) std::min<uint64_t> ((uint64_t) mask + 1, (uint64_t) echoClearAt + 64u * (uint64_t) frames));
         // Nothing in, nothing left ringing (and no Crush, whose hold keeps time): silence at no cost.
         if (silentIn && dcOut == 0.0f && dcIn == 0.0f && echoQuiet > mask && springQuiet > springMask && knobs.crush <= 0.0f)
         {
@@ -155,8 +149,10 @@ public:
         }
     }
 
-    // All sound off: the tails go too.
-    void silence() { reset(); }
+    // All sound off: the tails go too. No set() follows a panic (one follows a prepare or a reset of the engine,
+    // which is what the -1 delay waits for), and the knobs and the tempo survive it: the delay snaps to the set
+    // time now instead of gliding up from nothing until one of them next moves.
+    void silence() { reset(), retime(); }
     // A choke: the drum stops at once, so the DC blocker's memory of it goes too (or it would thump on); echoes ring on.
     void cut() { dcIn = dcOut = 0.0f; }
 
@@ -186,14 +182,6 @@ private:
             delay = echoTarget;
     }
 
-    // The echo's lines from echoClearAt up to `end` cleared.
-    void clearEcho (uint32_t end)
-    {
-        std::fill (echoL.begin() + echoClearAt, echoL.begin() + end, 0.0f);
-        std::fill (echoR.begin() + echoClearAt, echoR.begin() + end, 0.0f);
-        echoClearAt = end;
-    }
-
     void echo (float* left, float* right, uint32_t frames)
     {
         const float mix = knobs.echo * knobs.echo;
@@ -203,17 +191,19 @@ private:
             // Quiet in and out for a whole line's length: everything in it is silence; stop until sound comes.
             if (x == 0.0f && echoQuiet > mask)
                 continue;
-            // Sound before the last tail was all cleared away (process()): the rest goes now, so the lines are
-            // exactly silent when it starts, as if they had been cleared when the tail ended.
-            if (echoQuiet > mask && echoClearAt <= mask)
-                clearEcho (mask + 1);
             delay += (echoTarget - delay) * 0.0005f; // a tape's glide to a new time
             const float back = (float) write - delay;
             const float floorBack = std::floor (back);
             const uint32_t at = (uint32_t) (int32_t) floorBack & mask;
+            const uint32_t next = (at + 1) & mask;
             const float frac = back - floorBack;
-            const float tl = echoL[at] + (echoL[(at + 1) & mask] - echoL[at]) * frac;
-            const float tr = echoR[at] + (echoR[(at + 1) & mask] - echoR[at]) * frac;
+            // A place not written since the lines last fell silent (or a reset) still holds that older sound: it
+            // reads as the silence a cleared line would give, so the lines are never cleared in bulk.
+            const bool written = ((write - 1u - at) & mask) < echoWritten, writtenNext = ((write - 1u - next) & mask) < echoWritten;
+            const float l0 = written ? echoL[at] : 0.0f, l1 = writtenNext ? echoL[next] : 0.0f;
+            const float r0 = written ? echoR[at] : 0.0f, r1 = writtenNext ? echoR[next] : 0.0f;
+            const float tl = l0 + (l1 - l0) * frac;
+            const float tr = r0 + (r1 - r0) * frac;
             absorbL += (tl - absorbL) * absorbCoef;
             absorbR += (tr - absorbR) * absorbCoef;
             // A 20 Hz high-pass in the loop (one pole, under unity at every frequency): DC (a hit's offset, the soft
@@ -225,18 +215,19 @@ private:
             echoL[into] = softClip (x + feedback * hpR);
             echoR[into] = softClip (feedback * hpL);
             write = (write + 1) & mask;
+            if (echoWritten <= mask)
+                ++echoWritten;
             left[i] = x + mix * tl;
             right[i] = x + mix * tr;
             echoQuiet = std::fmax (std::fabs (x), std::fmax (std::fabs (tl), std::fabs (tr))) < 1e-6f ? echoQuiet + 1 : 0;
             if (echoQuiet <= mask)
-            {
-                echoClearAt = 0; // ringing: anything in the lines may be sound
                 continue;
-            }
             // Quiet for a whole line's length: exactly silent from here. The tail just ended: what it left in the lines
-            // (all under -120 dB) is cleared over the next blocks (echoClearAt is 0). Quiet before this sample too: the
-            // lines were all zeros, so only this sample's own write is undone.
-            if (echoQuiet != mask + 1)
+            // (all under -120 dB) counts as unwritten from now. Quiet before this sample too: the lines read as all
+            // zeros, so only this sample's own write is undone.
+            if (echoQuiet == mask + 1)
+                echoWritten = 0;
+            else
                 echoL[into] = echoR[into] = 0.0f;
             absorbL = absorbR = hpInL = hpInR = hpOutL = hpOutR = 0.0f;
         }
@@ -305,9 +296,9 @@ private:
     float dcCoef = 0.999f, dcIn = 0, dcOut = 0;
     // Echo.
     std::vector<float> echoL, echoR;
-    // echoClearAt: the lines are zeros below it (all of them at mask + 1). While the echo rings it is 0; once it has
-    // gone quiet (echoQuiet > mask) the rest is the old tail's to clear.
-    uint32_t mask = 0, write = 0, echoQuiet = 1u << 30, echoClearAt = 0;
+    // echoWritten: how many places counting back from `write` were written since the lines last fell silent (or a
+    // reset), held at mask + 1 (the whole line) once it has gone all the way round. Reads elsewhere are silence.
+    uint32_t mask = 0, write = 0, echoQuiet = 1u << 30, echoWritten = 0;
     float delay = -1, echoTarget = 1, feedback = 0, absorbCoef = 1, absorbL = 0, absorbR = 0;
     float loopHp = 0.997f, hpInL = 0, hpInR = 0, hpOutL = 0, hpOutR = 0; // the loop's 20 Hz high-pass
     // Space.

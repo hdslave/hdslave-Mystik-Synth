@@ -108,12 +108,12 @@ void textMoved (Plugin& p, uint32_t id)
         p.host->request_callback (p.host);
 }
 
-bool pushValue (const clap_output_events* out, uint32_t time, clap_id id, double value)
+bool pushValue (const clap_output_events* out, uint32_t time, clap_id id, double value, uint32_t flags = 0)
 {
     if (out == nullptr)
         return false;
     clap_event_param_value e {};
-    e.header = { sizeof (e), time, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0 };
+    e.header = { sizeof (e), time, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, flags };
     e.param_id = id;
     e.note_id = e.port_index = e.channel = e.key = -1;
     e.value = value;
@@ -178,13 +178,13 @@ bool paramsToText (const clap_plugin* plugin, clap_id id, double value, char* te
     return true;
 }
 
-bool paramsFromText (const clap_plugin*, clap_id id, const char* text, double* value)
+bool paramsFromText (const clap_plugin* plugin, clap_id id, const char* text, double* value)
 {
     const int index = paramIndex (id);
     if (index < 0 || text == nullptr)
         return false;
     float v = 0.0f;
-    if (! parseParam (paramTable[index], text, v))
+    if (! parseParam (paramTable[index], text, v, contextOf (of (plugin)))) // a step's Pitch by its note's name
         return false;
     *value = v;
     return true;
@@ -386,20 +386,26 @@ bool stateLoad (const clap_plugin* plugin, const clap_istream* stream)
     char tag[4] = {};
     uint32_t header[2] = {};
     if (! readAll (stream, tag, 4) || std::memcmp (tag, stateTag, 4) != 0 || ! readAll (stream, header, sizeof (header))
-        || header[0] == 0 || header[1] > 4096)
+        || header[0] == 0 || header[0] > stateVersion || header[1] > 4096)
         return false;
     float loaded[paramCount];
     for (uint32_t i = 0; i < paramCount; ++i)
         loaded[i] = paramTable[i].def;
+    bool sawHuman = false;
     for (uint32_t i = 0; i < header[1]; ++i)
     {
         struct { uint32_t id; float value; } pair {};
         if (! readAll (stream, &pair, sizeof (pair)))
             return false;
+        sawHuman |= pair.id == ParamId::human;
         const int index = paramIndex (pair.id);
         if (index >= 0 && paramTable[index].kind != Kind::button)
             loaded[index] = clampParam (paramTable[index], pair.value);
     }
+    // A state from before Human (0.1 had none) sounded with no variation from hit to hit: it loads at 0, as the
+    // 0.1 presets keep it, not at the later default.
+    if (! sawHuman)
+        loaded[paramIndex (ParamId::human)] = 0.0f;
     setAll (p, loaded);
     return true;
 }
@@ -598,14 +604,15 @@ clap_process_status pluginProcess (const clap_plugin* plugin, const clap_process
     for (; next < count; ++next) // events stamped past the block (a host's mistake): applied at its end
         handle (p, in->get (in, next), process->out_events, lastFrame);
 
-    // Regenerate's new Seed, told to the host like a knob turned.
+    // Regenerate's new Seed, told to the host like a knob turned. The plug-in turned it itself, so it is not the
+    // player's automation to record.
     float seedValue = 0.0f;
     if (p.engine.takeSeed (seedValue))
     {
         const int index = paramIndex (ParamId::seed);
         p.values[index].store (seedValue, std::memory_order_relaxed);
         p.applied[index] = seedValue;
-        pushValue (process->out_events, lastFrame, ParamId::seed, seedValue);
+        pushValue (process->out_events, lastFrame, ParamId::seed, seedValue, CLAP_EVENT_DONT_RECORD);
         p.valuesMoved = true;
     }
     // The page: a strike, a step moved, or a value the host moved; it paces its own animation after that.

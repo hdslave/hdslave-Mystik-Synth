@@ -390,7 +390,7 @@ inline void formatParam (const Param& p, float v, char* text, uint32_t size, con
 
 // Reads text as formatParam writes it (units optional); a choice by its name or its number. Text that is no number
 // (nan, inf) is refused.
-inline bool parseParam (const Param& p, const char* text, float& v)
+inline bool parseParam (const Param& p, const char* text, float& v, const TextContext& context = {})
 {
     while (*text == ' ')
         ++text;
@@ -436,9 +436,25 @@ inline bool parseParam (const Param& p, const char* text, float& v)
             const long octave = std::strtol (rest, &end, 10);
             if (end == rest) return false;
             float semis = (float) (key + 12 * (octave + 2) - tuneRootNote);
-            if (*end == '+' || *end == '-') semis += (float) std::strtod (end, nullptr) / 100.0f;
+            if (*end == '+' || *end == '-')
+            {
+                const double cents = std::strtod (end, nullptr);
+                if (! std::isfinite (cents)) return false;
+                semis += (float) cents / 100.0f;
+            }
             if (p.unit == Unit::note) { v = clampParam (p, semis); return true; }
-            return false; // a step's note by name: not offered (degrees depend on the scale)
+            // A step's Pitch by its note's name: the degree of the live Scale, counted from the live Tune, that
+            // sounds as that note. No degree near it (a note outside the scale) reads as no value.
+            int best = 0;
+            float bestErr = 1e9f;
+            for (int d = (int) p.min; d <= (int) p.max; ++d)
+            {
+                const float err = std::fabs (context.tune + degreeSemis (d, (int) context.scale) - semis);
+                if (err < bestErr)
+                    bestErr = err, best = d;
+            }
+            if (bestErr > 0.04f) return false; // a name's cents are whole: a degree lands within a cent
+            return v = (float) best, true;
         }
     }
     if (p.unit == Unit::ratioCurve && (*text == 'x' || *text == 'X'))

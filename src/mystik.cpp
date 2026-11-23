@@ -484,6 +484,8 @@ bool pluginInit (const clap_plugin* plugin)
     }
     p.hostParams = static_cast<const clap_host_params*> (p.host->get_extension (p.host, CLAP_EXT_PARAMS));
     p.hostScreen = static_cast<const clap_host_melodee_screen*> (p.host->get_extension (p.host, CLAP_EXT_MELODEE_SCREEN_HOST));
+    if (p.hostScreen == nullptr) // no page will ever read the engine's report of itself: don't keep it
+        p.engine.watch (nullptr);
     return true;
 }
 

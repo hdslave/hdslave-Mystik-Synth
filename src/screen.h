@@ -840,10 +840,17 @@ private:
         }
         const int zeroY = y0 + (int) std::lround (12.0 / 60.0 * hgt);
         for (int x = x0; x < x0 + w; x += 2) r.dot (x, zeroY, ink::rule);
+        // The curve's columns are always at the same frequencies: worked out once (the same pow values).
+        static const std::array<double, w> hzTable = [] {
+            std::array<double, w> t {};
+            for (int x = 0; x < w; ++x)
+                t[(size_t) x] = 20.0 * std::pow (1000.0, (double) x / (w - 1));
+            return t;
+        }();
         int last = -1;
         for (int x = 0; x < w; ++x)
         {
-            const double hz = 20.0 * std::pow (1000.0, (double) x / (w - 1));
+            const double hz = hzTable[(size_t) x];
             const double db = gateDb (g, hz);
             const int y = y0 + std::clamp ((int) std::lround ((12.0 - db) / 60.0 * hgt), 0, hgt - 1);
             if ((x & 1) == 0)

@@ -66,6 +66,10 @@ class Engine
 public:
     explicit Engine (Telemetry* t = nullptr) : telemetry (t) {}
 
+    // The screen's report, or none. Nothing in it feeds the sound: a host with no screen never reads it, so it
+    // need not be kept (called from init, before any processing).
+    void watch (Telemetry* t) { telemetry = t; }
+
     void prepare (double hostRate, uint32_t)
     {
         rate = hostRate;

@@ -18,7 +18,12 @@ int main (int argc, char** argv)
     constexpr double rate = 48000.0;
     constexpr uint32_t block = 128;
 
-    static const clap_host host { CLAP_VERSION, nullptr, "bench", "", "", "1", [] (const clap_host*, const char*) -> const void* { return nullptr; },
+    // As Melodee: a screen host is there, so the engine keeps its report for the page, as on the MPC.
+    static const clap_host host { CLAP_VERSION, nullptr, "bench", "", "", "1",
+                                  [] (const clap_host*, const char* id) -> const void* {
+                                      static const clap_host_melodee_screen screen { [] (const clap_host*) {} };
+                                      return std::strcmp (id, CLAP_EXT_MELODEE_SCREEN_HOST) == 0 ? (const void*) &screen : nullptr;
+                                  },
                                   [] (const clap_host*) {}, [] (const clap_host*) {}, [] (const clap_host*) {} };
     clap_entry.init ("");
     const auto* factory = static_cast<const clap_plugin_factory*> (clap_entry.get_factory (CLAP_PLUGIN_FACTORY_ID));

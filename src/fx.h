@@ -149,10 +149,11 @@ public:
         }
     }
 
-    // All sound off: the tails go too. No set() follows a panic (one follows a prepare or a reset of the engine,
-    // which is what the -1 delay waits for), and the knobs and the tempo survive it: the delay snaps to the set
-    // time now instead of gliding up from nothing until one of them next moves.
-    void silence() { reset(), retime(); }
+    // All sound off: the tails go too. The knobs and the tempo survive a panic, but one of them may have
+    // landed in the panic's own block, before a set() could take it: so where reset()'s -1 delay (a prepare)
+    // snaps at the next retime as it always did, a panic's -2 waits — the snap to the set time happens at the
+    // echo's first sounding sample, by when both stand as they now are.
+    void silence() { reset(); delay = -2.0f; }
     // A choke: the drum stops at once, so the DC blocker's memory of it goes too (or it would thump on); echoes ring on.
     void cut() { dcIn = dcOut = 0.0f; }
 
@@ -176,7 +177,7 @@ private:
     {
         const double beats = echoTimeBeats[std::max (0, std::min (knobs.echoTime, 11))];
         echoTarget = (float) std::min ((double) mask - 4.0, std::max (1.0, beats * 60.0 / std::max (1.0, tempoBpm) * rate));
-        if (delay < 0.0f)
+        if (delay == -1.0f) // a prepare's reset: the set time whole at once (a panic's -2 waits, see silence())
             delay = echoTarget;
     }
 
@@ -189,6 +190,8 @@ private:
             // Quiet in and out for a whole line's length: everything in it is silence; stop until sound comes.
             if (x == 0.0f && echoQuiet > mask)
                 continue;
+            if (delay < 0.0f) // the first sounding sample after a panic: the set time whole (see silence())
+                delay = echoTarget;
             delay += (echoTarget - delay) * 0.0005f; // a tape's glide to a new time
             const float back = (float) write - delay;
             const float floorBack = std::floor (back);

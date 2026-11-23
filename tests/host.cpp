@@ -8,6 +8,7 @@
 #include "png.h"
 #include "../src/melodee_screen.h"
 #include "../src/voice.h" // the gate's analog response (gateResponse, gateDb), to hold the sound to it
+#include "../src/fx.h"    // the echo's reset, held to its set time in testEchoReset
 
 #include <clap/clap.h>
 
@@ -92,11 +93,14 @@ struct Events
 struct OutEvents
 {
     std::vector<std::pair<clap_id, double>> values;
+    std::vector<uint32_t> flags; // the header flags of each value, in step
     clap_output_events out { this, [] (const clap_output_events* o, const clap_event_header* h) {
         if (h->space_id == CLAP_CORE_EVENT_SPACE_ID && h->type == CLAP_EVENT_PARAM_VALUE)
         {
             const auto* v = reinterpret_cast<const clap_event_param_value*> (h);
-            static_cast<OutEvents*> (o->ctx)->values.push_back ({ v->param_id, v->value });
+            auto* self = static_cast<OutEvents*> (o->ctx);
+            self->values.push_back ({ v->param_id, v->value });
+            self->flags.push_back (h->flags);
         }
         return true;
     } };
@@ -383,8 +387,8 @@ void testParameters()
             CHECK (a.params->value_to_text (a.plugin, info.id, x, text, sizeof (text)));
             double back = -1e9;
             const bool parsed = a.params->text_to_value (a.plugin, info.id, text, &back);
-            const bool degree = std::string (info.name).rfind ("Pitch ", 0) == 0;
-            if (degree) continue; // a step's note names depend on the scale; numbers are read instead
+            // A step's Pitch reads as a note of the live Scale from the live Tune, and that note's name reads back to
+            // the degree it came from (the instance's Tune and Scale have not moved yet in this loop).
             if (! parsed || std::fabs (back - x) > 0.02 * (info.max_value - info.min_value) + 1e-6)
             {
                 std::printf ("  text round trip: %s %g -> \"%s\" -> %g\n", info.name, x, text, back);
@@ -411,6 +415,7 @@ void testParameters()
     a.plugin->on_main_thread (a.plugin);
     CHECK (textRescans > before);
     CHECK (a.text ("Pitch 1", 1.0) == "B2+40c");
+    CHECK (a.params->text_to_value (a.plugin, a.id ("Pitch 1"), "B2+40c", &v) && v == 1.0); // microtonal names read back too
 }
 
 void testState()
@@ -453,12 +458,44 @@ void testState()
     CHECK (! load (c, shortened));
     // An unknown id is skipped; a value out of range is held to its range.
     auto extra = saved;
-    const uint32_t count = 116;
+    const uint32_t count = mystik::paramCount + 1; // one more pair than the state was saved with: it is really read
     std::memcpy (extra.data() + 8, &count, 4);
     const struct { uint32_t id; float v; } unknown { 9999, 1.0f };
     extra.insert (extra.end(), (const uint8_t*) &unknown, (const uint8_t*) &unknown + 8);
     Instance d;
     CHECK (load (d, extra) && d.value ("Body") == 6);
+    // A state from a newer version is refused, changing nothing (it may mean things this build cannot know).
+    auto future = saved;
+    const uint32_t version2 = 2;
+    std::memcpy (future.data() + 4, &version2, 4);
+    Instance e;
+    e.setup ({ { "Body", 3 } });
+    CHECK (! load (e, future));
+    CHECK (e.value ("Body") == 3);
+    // A 0.1 state (no Human, which came in 0.2): loads with Human at 0, as 0.1 sounded, not at the 0.3 default; and
+    // sounds exactly as the same state with Human 0 written in it.
+    const clap_id humanId = b.id ("Human");
+    std::vector<uint8_t> old01 (saved.begin(), saved.begin() + 12);
+    uint32_t pairs = 0;
+    for (size_t at = 12; at + 8 <= saved.size(); at += 8)
+    {
+        uint32_t id = 0;
+        std::memcpy (&id, saved.data() + at, 4);
+        if (id != humanId)
+            old01.insert (old01.end(), saved.begin() + (long) at, saved.begin() + (long) at + 8), ++pairs;
+    }
+    std::memcpy (old01.data() + 8, &pairs, 4);
+    Instance f;
+    CHECK (load (f, old01));
+    CHECK (f.value ("Human") == 0.0);
+    auto explicit0 = old01;
+    const struct { uint32_t id; float v; } human0 { humanId, 0.0f };
+    explicit0.insert (explicit0.end(), (const uint8_t*) &human0, (const uint8_t*) &human0 + 8);
+    ++pairs;
+    std::memcpy (explicit0.data() + 8, &pairs, 4);
+    Instance g, h;
+    CHECK (load (g, old01) && load (h, explicit0));
+    CHECK (g.play (24000) == h.play (24000));
 }
 
 void testPresets()
@@ -1320,13 +1357,17 @@ void testRegenerate()
     }, &out);
     const double after = a.value ("Seed");
     CHECK (after != before);
-    bool told = false, released = false;
-    for (auto& [id, v] : out.values)
+    bool told = false, released = false, notRecorded = false;
+    for (size_t i = 0; i < out.values.size(); ++i)
     {
+        const auto& [id, v] = out.values[i];
         told |= id == a.id ("Seed") && v == after;
+        // The plug-in set Seed itself: a host must not record it as the player's own automation.
+        notRecorded |= id == a.id ("Seed") && (out.flags[i] & CLAP_EVENT_DONT_RECORD) != 0;
         released |= id == a.id ("Regenerate") && v == 0.0;
     }
     CHECK (told && released);
+    CHECK (notRecorded);
 }
 
 // The echo's loop high-passes at 20 Hz: at Repeats 97 % with Absorb 100 % (a loop gain just over 1 at DC) the folded
@@ -1342,6 +1383,219 @@ void testEchoDc()
     CHECK (rmsOf (l, 48000 * 10, 48000 * 11) > 0.01);
     CHECK (std::fabs (mean (48000 * 39, 48000 * 40)) < 1e-3);
     CHECK (rmsOf (l, 48000 * 39, 48000 * 40) < 0.5 * rmsOf (l, 48000 * 10, 48000 * 11));
+}
+
+// A loop wrap the host tells a block late (its blocks do not divide the loop) must sound exactly as one told on
+// time: the step clocked on the wrap's frame is decided once, so Turing's register, Brownian's walk and the
+// automaton's generations move on once, not twice. In each case the wrap's own step rests either way (the cases
+// were picked for that), so only the state after it can differ.
+void testWrap()
+{
+    auto scene = [] (const std::vector<std::pair<std::string, double>>& extra, uint32_t block) {
+        Instance a;
+        auto v = clickPatch();
+        v.push_back ({ "Rate", a.valueOf ("Rate", "1/16") });
+        v.push_back ({ "Length", 12 });
+        for (auto& e : extra)
+            v.push_back (e);
+        a.setup (v);
+        std::vector<float> l, r;
+        a.render (199680, block, l, r, [] (uint64_t at) {
+            return Transport { true, 120.0, std::fmod ((double) at * 2.0 / 48000.0, 3.0) }; // a 3-beat loop: 12 steps
+        });
+        l.insert (l.end(), r.begin(), r.end());
+        return l;
+    };
+    auto check = [&] (const std::vector<std::pair<std::string, double>>& extra) {
+        const auto onTime = scene (extra, 64); // the wrap (frame 72,000) is a block's first frame: told on time
+        const auto late = scene (extra, 128);  // the block crossing it runs on: told 64 frames late, as Melodee does
+        CHECK (peakOf (onTime) > 0.01);
+        CHECK (late == onTime);
+        if (late != onTime)
+        {
+            size_t at = 0;
+            while (at < onTime.size() && onTime[at] == late[at])
+                ++at;
+            std::printf ("  wrap: first differs at %zu\n", at);
+        }
+    };
+    Instance probe;
+    check ({ { "Seq Mode", probe.valueOf ("Seq Mode", "Turing") }, { "Mutate", 0.3 }, { "Density", 0.6 }, { "Seed", 4 } });
+    {
+        std::vector<std::pair<std::string, double>> rests { { "Direction", probe.valueOf ("Direction", "Brownian") }, { "Seed", 1 } };
+        for (int s = 1; s <= 16; ++s)
+            if (s != 1 && s != 7)
+                rests.push_back ({ "Trig " + std::to_string (s), 0.0 });
+        check (rests);
+    }
+    check ({ { "Seq Mode", probe.valueOf ("Seq Mode", "Automaton") }, { "Rule", 90 }, { "Density", 0.4 }, { "Seed", 3 } });
+}
+
+// A note on Play's own frame is read under the new transport, and one on Stop's frame under the stopped one:
+// settings sent with Play apply first, then the transport, then notes.
+void testFrameZero()
+{
+    // On Play's frame (sequencer on): a key outside the pads transposes the first step, it does not strike as a
+    // Pitch note of a stopped drum. Whatever Notes says (Pitch here, Strokes there).
+    for (const char* notes : { "Pitch", "Strokes" })
+    {
+        Instance a;
+        auto v = dronePatch (a);
+        v.push_back ({ "Notes", a.valueOf ("Notes", notes) });
+        a.setup (v);
+        const auto out = perform (a, 48000, { padOn (0, 64), padOff (3000, 64) }, playingAll(), 128, false);
+        CHECK_PITCH (out, 2000, 22000, padDegree[0] + 4);
+        CHECK_PITCH (out, 26000, 46000, padDegree[1] + 4);
+    }
+    // On Stop's frame: the same key plays the drum (Pitch), it does not transpose a pattern that has stopped.
+    {
+        Instance a;
+        a.setup (dronePatch (a));
+        const uint64_t stop = 48000;
+        const auto out = perform (a, 96000, { padOn (stop, 64), padOff (stop + 6000, 64) },
+                                  [&] (uint64_t at) { return at < stop ? playingFrom (0.0, 120.0, 48000.0, at) : stopped(); }, 128, false);
+        CHECK_PITCH (out, stop + 2000, stop + 22000, 4);
+    }
+}
+
+// Stop (and the Sequencer switched off) takes the sequence's still-queued hits with it: no roll hit and no bounce
+// lands after it. A live key's own further hits are the player's, not the sequence's: a flam struck by hand
+// completes across a Stop.
+void testStopQueue()
+{
+    auto rollPatch = [] (Instance& a) {
+        auto v = clickPatch();
+        v.push_back ({ "Rate", a.valueOf ("Rate", "1/4") });
+        v.push_back ({ "Stroke 1", a.valueOf ("Stroke 1", "Roll") });
+        return v;
+    };
+    const uint64_t stopAt = 12160; // a block boundary, after the roll's second hit (9,315), before its third (15,835)
+    {
+        Instance a;
+        a.setup (rollPatch (a));
+        const auto out = perform (a, 48000, {}, [&] (uint64_t at) { return at < stopAt ? playingFrom (0.0, 120.0, 48000.0, at) : stopped(); },
+                                  128, false);
+        const auto hits = onsets (out, 2e-3f, 2e-4f, 400);
+        CHECK (hits.size() >= 2);
+        for (long h : hits)
+            CHECK (h < (long) stopAt);
+    }
+    {
+        Instance a;
+        a.setup (rollPatch (a));
+        const auto out = perform (a, 48000, { paramEvent (stopAt, "Sequencer", 0.0) }, playingAll(), 128, false);
+        const auto hits = onsets (out, 2e-3f, 2e-4f, 400);
+        CHECK (hits.size() >= 2);
+        for (long h : hits)
+            CHECK (h < (long) stopAt);
+    }
+    {
+        Instance a;
+        auto v = clickPatch();
+        v.push_back ({ "Rate", a.valueOf ("Rate", "1/16") });
+        v.push_back ({ "Seq Mode", a.valueOf ("Seq Mode", "Bounce") });
+        v.push_back ({ "Density", 0.2 });
+        a.setup (v);
+        const auto out = perform (a, 96000, {}, [&] (uint64_t at) { return at < stopAt ? playingFrom (0.0, 120.0, 48000.0, at) : stopped(); },
+                                  128, false);
+        const auto hits = onsets (out, 2e-3f, 2e-4f, 400);
+        CHECK (! hits.empty());
+        for (long h : hits)
+            CHECK (h < (long) stopAt);
+    }
+    {
+        // The flam's main hit (22 ms after its grace) is the key's own: a Stop in between changes nothing.
+        auto flam = [] (bool stop) {
+            Instance a;
+            a.setup ({ { "Sequencer", 0.0 }, { "Echo", 0.0 }, { "Space", 0.0 }, { "Decay", 0.0 }, { "Ring", 0.0 },
+                       { "Notes", a.valueOf ("Notes", "Strokes") } });
+            return perform (a, 24000, { padOn (11900, 41) },
+                            [stop] (uint64_t at) { return ! stop || at < 12032 ? playingFrom (0.0, 120.0, 48000.0, at) : stopped(); }, 128, false);
+        };
+        const auto played = flam (false);
+        CHECK (peakOf (played, 13000, 16000) > 0.005); // the main hit landed about 12,956
+        CHECK (flam (true) == played);
+    }
+}
+
+// After All Sound Off the echo's time is the set one from the first tap, not a glide up from nothing.
+void testEchoReset()
+{
+    auto tapOf = [] (mystik::Effects& fx) {
+        std::vector<float> l (24576, 0.0f), r (24576, 0.0f);
+        l[0] = 0.5f;
+        for (uint32_t at = 0; at + 128 <= 24576; at += 128)
+            fx.process (l.data() + at, r.data() + at, 128, false);
+        for (size_t i = 100; i < l.size(); ++i)
+            if (std::fabs (l[i]) > 0.01f)
+                return (long) i;
+        return -1L;
+    };
+    mystik::Effects fx;
+    fx.prepare (48000.0);
+    mystik::FxKnobs k;
+    k.echo = 0.5f, k.echoTime = 2, k.repeats = 0.0f, k.space = 0.0f; // 1/16 at 120 BPM: 6,000 frames
+    fx.set (k);
+    fx.tempo (120.0);
+    const long first = tapOf (fx);
+    CHECK (first >= 5996 && first <= 6004);
+    fx.silence();
+    CHECK (tapOf (fx) == first);
+}
+
+// A state loaded into a sounding instance settles at once: its knobs are in place at the next control tick, not
+// eased over the next millisecond and a half.
+void testSettle()
+{
+    const std::vector<std::pair<std::string, double>> drone { { "Source", 0.0 }, { "FM Index", 0.0 }, { "Timbre", 0.0 }, { "Bloom", 0.0 },
+                                                                { "Drift", 0.0 }, { "Bend", 0.0 }, { "Echo", 0.0 }, { "Space", 0.0 },
+                                                                { "Sequencer", 0.0 }, { "Open", 1.0 }, { "Human", 0.0 } };
+    std::vector<uint8_t> saved;
+    {
+        Instance src;
+        auto v = drone;
+        v.push_back ({ "Tune", 36.0 });
+        src.setup (v);
+        clap_ostream out { &saved, [] (const clap_ostream* s, const void* data, uint64_t size) -> int64_t {
+            auto* bytes = static_cast<std::vector<uint8_t>*> (s->ctx);
+            bytes->insert (bytes->end(), (const uint8_t*) data, (const uint8_t*) data + size);
+            return (int64_t) size;
+        } };
+        CHECK (src.state->save (src.plugin, &out));
+    }
+    Instance a;
+    auto v = drone;
+    v.push_back ({ "Tune", 0.0 });
+    a.setup (v);
+    (void) a.play (9600, false); // sounding at C2, its knobs long settled
+    struct Reader { const std::vector<uint8_t>* data; size_t at; };
+    Reader reader { &saved, 0 };
+    clap_istream in { &reader, [] (const clap_istream* s, void* data, uint64_t size) -> int64_t {
+        auto* r = static_cast<Reader*> (s->ctx);
+        const size_t n = std::min<size_t> ((size_t) size, r->data->size() - r->at);
+        std::memcpy (data, r->data->data() + r->at, n);
+        r->at += n;
+        return (int64_t) n;
+    } };
+    CHECK (a.state->load (a.plugin, &in));
+    const auto after = a.play (4800, false);
+    CHECK_NEAR (pitchOf (after, 16, 224, 48000.0), 1046.5, 30.0); // three octaves up, already there
+    CHECK_NEAR (pitchOf (after, 2000, 4000, 48000.0), 1046.5, 12.0);
+}
+
+// Press bends the pitch up as the finger leans; another stroke interrupting it lets the bend fall back at the
+// press's own rate instead of snapping to the unbent pitch mid-ring.
+void testPress()
+{
+    Instance a;
+    a.setup ({ { "Source", 0.0 }, { "FM Index", 0.0 }, { "Timbre", 0.0 }, { "Bloom", 0.0 }, { "Drift", 0.0 }, { "Bend", 0.0 },
+               { "Echo", 0.0 }, { "Space", 0.0 }, { "Sequencer", 0.0 }, { "Open", 1.0 }, { "Tune", 0.0 }, { "Human", 0.0 },
+               { "Notes", a.valueOf ("Notes", "Strokes") } });
+    // Key 43 is Press, key 40 Ghost, both at Tune.
+    const auto out = a.keys (48000, { { 0, 43, 0.9, true }, { 24000, 40, 0.9, true } });
+    CHECK_NEAR (pitchOf (out, 20000, 23000, 48000.0), 146.8, 2.0); // risen the press's two semitones
+    CHECK (pitchOf (out, 24300, 26000, 48000.0) > 138.0);           // falling back, not snapped
+    CHECK_NEAR (pitchOf (out, 40000, 47000, 48000.0), 130.81, 1.5);
 }
 
 void testExtremes()
@@ -1625,6 +1879,12 @@ int main (int argc, char** argv)
     run ("pads", testPads);
     run ("regenerate", testRegenerate);
     run ("echo-dc", testEchoDc);
+    run ("wrap", testWrap);
+    run ("framezero", testFrameZero);
+    run ("stopqueue", testStopQueue);
+    run ("echoreset", testEchoReset);
+    run ("settle", testSettle);
+    run ("press", testPress);
     run ("extremes", testExtremes);
     run ("screen", [&] { testScreen (argv[2]); });
     run ("demos", [&] { demos (argv[2]); });

@@ -29,7 +29,7 @@ Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melo
 - **Cost**: about 90,000 instructions a 128-frame block playing (1.9 % of one of the MPC's cores), 1,900 stopped;
   a page frame about 380,000 instructions in the PLAY benchmark, redrawing only what moved.
 
-Version 0.3.0. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
+Version 0.3.1. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
 
 ## Install
 
@@ -192,9 +192,13 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
     tools/bench.sh           # instructions a block (callgrind): worst, acid, typical, stopped, a page frame
     ./build.sh fingerprint-update   # only after a change meant to change the sound
 
-- `tests/host.cpp` (681,084 checks): the description, every parameter's text both ways, state, presets, the gate held
+- `tests/host.cpp` (699,512 checks): the description, every parameter's text both ways (a step's Pitch by its note's
+  name too), state (a 0.1 state keeping Human at 0, a newer version refused), presets, the gate held
   to the 292's response at seven settings, the vactrol's timing, steps to the sample (swing too), every sequencer mode,
-  stop and Play again, a loop the host tells a block late, the same output in blocks of 1, 37, 128 and 4096 frames,
+  stop and Play again, a loop the host tells a block late sounding as one told on time in Turing, Brownian and
+  Automaton, a note on Play's frame and on Stop's, a stop (or the Sequencer off) taking the sequence's queued roll
+  and bounce hits while a key's flam completes, the echo at its set time after All Sound Off, a state loaded into a
+  sounding instance settling at once, a press interrupted letting its bend fall back, the same output in blocks of 1, 37, 128 and 4096 frames,
   keys and MIDI, Hold ending with the note (a flam's, roll's or bounce's later hits do not light it again), the step
   pads (each pad against Notes: Steps and against the sequence playing that step, their pitches stopped and playing,
   the sequence and the transposition left as they were, Turing's register too, the other keys still transposing, the

@@ -12,7 +12,7 @@
 #include <strings.h>
 
 #ifndef MYSTIK_VERSION
-#define MYSTIK_VERSION "0.3.0"
+#define MYSTIK_VERSION "0.3.1"
 #endif
 
 namespace mystik

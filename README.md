@@ -26,10 +26,10 @@ Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melo
   microtonal), a seed and Regenerate. While it is on, pads 1-16 play its steps, so a pattern can be heard step by step.
 - **The effects**: Drive, Crush, a ping-pong Echo synced to the tempo with Absorb in its loop, Space (a spring-like
   tank of dispersive allpasses).
-- **Cost**: about 90,000 instructions a 128-frame block playing (1.9 % of one of the MPC's cores), 1,900 stopped;
-  a page frame about 380,000 instructions in the PLAY benchmark, redrawing only what moved.
+- **Cost**: about 91,000 instructions a 128-frame block playing (1.9 % of one of the MPC's cores), 2,000 stopped;
+  a page frame about 378,000 instructions in the PLAY benchmark, redrawing only what moved.
 
-Version 0.3.1. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
+Version 0.3.2. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
 
 ## Install
 
@@ -192,13 +192,16 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
     tools/bench.sh           # instructions a block (callgrind): worst, acid, typical, stopped, a page frame
     ./build.sh fingerprint-update   # only after a change meant to change the sound
 
-- `tests/host.cpp` (699,512 checks): the description, every parameter's text both ways (a step's Pitch by its note's
+- `tests/host.cpp` (709,137 checks): the description, every parameter's text both ways (a step's Pitch by its note's
   name too), state (a 0.1 state keeping Human at 0, a newer version refused), presets, the gate held
   to the 292's response at seven settings, the vactrol's timing, steps to the sample (swing too), every sequencer mode,
   stop and Play again, a loop the host tells a block late sounding as one told on time in Turing, Brownian and
-  Automaton, a note on Play's frame and on Stop's, a stop (or the Sequencer off) taking the sequence's queued roll
-  and bounce hits while a key's flam completes, the echo at its set time after All Sound Off, a state loaded into a
-  sounding instance settling at once, a press interrupted letting its bend fall back, the same output in blocks of 1, 37, 128 and 4096 frames,
+  Automaton (and staying silent with the Sequencer off), a note and a step pad on Play's frame and on Stop's, a
+  stop (or the Sequencer off) taking the sequence's queued roll
+  and bounce hits while a key's flam completes, the echo at its set time after All Sound Off through the plug-in
+  (a new time sent with the panic too), a state loaded into a
+  sounding instance settling at once, a press interrupted letting its bend fall back and a fresh hit once it has
+  rung out, or after a choke, starting unbent, the same output in blocks of 1, 37, 128 and 4096 frames,
   keys and MIDI, Hold ending with the note (a flam's, roll's or bounce's later hits do not light it again), the step
   pads (each pad against Notes: Steps and against the sequence playing that step, their pitches stopped and playing,
   the sequence and the transposition left as they were, Turing's register too, the other keys still transposing, the
@@ -211,7 +214,7 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
   pages in Melodee's screen, the K1-K3 bindings), with the hdslaveOS checkout mounted read-only.
 
 Cost (callgrind, 128-frame blocks at 48 kHz; about 4.8 million cycles a block on the MPC's 1.8 GHz A55): worst
-96,500, acid 87,700, typical 90,200, stopped 1,900 instructions a block; a PLAY frame while it plays about 380,000.
+97,700, acid 88,600, typical 91,200, stopped 2,000 instructions a block; a PLAY frame while it plays about 378,000.
 The voice runs at twice the rate (a 47-tap half-band filter brings it down, its 12 symmetric pairs as three NEON
 multiply-adds), the membrane is two four-lane vectors, the spring's two sides one two-lane vector,
 the slow parts (pitch, the membrane's angles, the vactrol's time constants, the gate's coefficients) are worked out

@@ -1429,6 +1429,37 @@ void testWrap()
         check (rests);
     }
     check ({ { "Seq Mode", probe.valueOf ("Seq Mode", "Automaton") }, { "Rule", 90 }, { "Density", 0.4 }, { "Seed", 3 } });
+    // The Sequencer switched off before the wrap: deciding the wrap's step again must stay as silent as the
+    // clock was (the replay once struck it from the last sequencer-on step's state). Told late sounds exactly
+    // as told on time, and nothing sounds after the switch's own ring.
+    {
+        auto sceneOff = [] (uint32_t block) {
+            Instance a;
+            auto v = clickPatch();
+            v.push_back ({ "Rate", a.valueOf ("Rate", "1/16") });
+            v.push_back ({ "Length", 12 });
+            a.setup (v);
+            std::vector<float> l, r;
+            a.render (199680, block, l, r, [] (uint64_t at) { return Transport { true, 120.0, std::fmod ((double) at * 2.0 / 48000.0, 3.0) }; },
+                      [&] (uint64_t at, uint32_t n, Events& e) {
+                          if (60000 >= at && 60000 < at + n)
+                              e.param ((uint32_t) (60000 - at), a.id ("Sequencer"), 0.0);
+                      });
+            l.insert (l.end(), r.begin(), r.end());
+            return l;
+        };
+        const auto onTime = sceneOff (64), late = sceneOff (128);
+        CHECK (peakOf (onTime, 0, 60000) > 0.01);
+        CHECK (peakOf (late, 70000, 199680) < 1e-4);
+        CHECK (late == onTime);
+        if (late != onTime)
+        {
+            size_t at = 0;
+            while (at < onTime.size() && onTime[at] == late[at])
+                ++at;
+            std::printf ("  wrap-off: first differs at %zu\n", at);
+        }
+    }
 }
 
 // A note on Play's own frame is read under the new transport, and one on Stop's frame under the stopped one:
@@ -1436,8 +1467,8 @@ void testWrap()
 void testFrameZero()
 {
     // On Play's frame (sequencer on): a key outside the pads transposes the first step, it does not strike as a
-    // Pitch note of a stopped drum. Whatever Notes says (Pitch here, Strokes there).
-    for (const char* notes : { "Pitch", "Strokes" })
+    // note of a stopped drum. Whatever Notes says (Pitch, Strokes or Steps).
+    for (const char* notes : { "Pitch", "Strokes", "Steps" })
     {
         Instance a;
         auto v = dronePatch (a);
@@ -1455,6 +1486,24 @@ void testFrameZero()
         const auto out = perform (a, 96000, { padOn (stop, 64), padOff (stop + 6000, 64) },
                                   [&] (uint64_t at) { return at < stop ? playingFrom (0.0, 120.0, 48000.0, at) : stopped(); }, 128, false);
         CHECK_PITCH (out, stop + 2000, stop + 22000, 4);
+    }
+    // A step pad on Play's frame: the step the sequence plays on that frame wins, the pad's own step (9 here)
+    // does not sound, and the sequence walks on as it would have.
+    {
+        Instance a;
+        a.setup (dronePatch (a));
+        const auto out = perform (a, 48000, { padOn (0, 44), padOff (3000, 44) }, playingAll(), 128, false);
+        CHECK_PITCH (out, 2000, 22000, padDegree[0]);
+        CHECK_PITCH (out, 26000, 46000, padDegree[1]);
+    }
+    // A step pad on Stop's frame plays its step, as it does stopped.
+    {
+        Instance a;
+        a.setup (dronePatch (a));
+        const uint64_t stop = 48000;
+        const auto out = perform (a, 96000, { padOn (stop, 44), padOff (stop + 6000, 44) },
+                                  [&] (uint64_t at) { return at < stop ? playingFrom (0.0, 120.0, 48000.0, at) : stopped(); }, 128, false);
+        CHECK_PITCH (out, stop + 2000, stop + 22000, padDegree[8]);
     }
 }
 
@@ -1541,6 +1590,48 @@ void testEchoReset()
     CHECK (first >= 5996 && first <= 6004);
     fx.silence();
     CHECK (tapOf (fx) == first);
+
+    // The same through the plug-in, as a host sends it (the part above compiles the header into this binary, so
+    // it cannot see a broken CC 120 -> All Sound Off -> echo road): a click's one repeat (Repeats at 0) lands
+    // the set 1/16 (6,000 frames at 120 BPM) after it, before a panic and after one alike.
+    auto echoPatch = [] (Instance& a, const char* time) {
+        return std::vector<std::pair<std::string, double>> { { "Source", 1.0 }, { "Snap", 0.0 }, { "Ring", 0.0 }, { "Decay", 0.0 },
+                                                             { "Bend", 0.0 }, { "Drift", 0.0 }, { "Human", 0.0 }, { "Echo", 0.8 },
+                                                             { "Repeats", 0.0 }, { "Space", 0.0 }, { "Sequencer", 0.0 },
+                                                             { "Echo Time", a.valueOf ("Echo Time", time) } };
+    };
+    {
+        Instance a;
+        a.setup (echoPatch (a, "1/16"));
+        const auto out = perform (a, 96000, { padOn (0, 60), padOff (3000, 60), midiEvent (24000, 0xb0, 120, 0),
+                                              padOn (48000, 60), padOff (51000, 60) },
+                                  stoppedAll(), 128, false);
+        const auto hits = onsets (out, 4e-3f, 1e-4f, 400);
+        CHECK (hits.size() == 4);
+        if (hits.size() == 4)
+        {
+            CHECK (hits[1] - hits[0] >= 5984 && hits[1] - hits[0] <= 6016);
+            CHECK (hits[3] - hits[2] >= hits[1] - hits[0] - 4 && hits[3] - hits[2] <= hits[1] - hits[0] + 4);
+        }
+        else
+            std::printf ("  echo-cc120: %zu onsets\n", hits.size());
+    }
+    // A new Echo Time sent in the panic's own block (settings land before the block renders, so the effects
+    // have not taken them when the panic is handled): the next hit's repeat is at the new time from its first
+    // tap, not snapped to the old one and gliding.
+    {
+        Instance a;
+        a.setup (echoPatch (a, "1/4"));
+        const auto out = perform (a, 96000, { paramEvent (0, "Echo Time", a.valueOf ("Echo Time", "1/16")),
+                                              midiEvent (0, 0xb0, 120, 0), padOn (24000, 60), padOff (27000, 60) },
+                                  stoppedAll(), 128, false);
+        const auto hits = onsets (out, 4e-3f, 1e-4f, 400);
+        CHECK (hits.size() == 2);
+        if (hits.size() == 2)
+            CHECK (hits[1] - hits[0] >= 5984 && hits[1] - hits[0] <= 6016);
+        else
+            std::printf ("  echo-stale: %zu onsets\n", hits.size());
+    }
 }
 
 // A state loaded into a sounding instance settles at once: its knobs are in place at the next control tick, not
@@ -1596,6 +1687,33 @@ void testPress()
     CHECK_NEAR (pitchOf (out, 20000, 23000, 48000.0), 146.8, 2.0); // risen the press's two semitones
     CHECK (pitchOf (out, 24300, 26000, 48000.0) > 138.0);           // falling back, not snapped
     CHECK_NEAR (pitchOf (out, 40000, 47000, 48000.0), 130.81, 1.5);
+
+    // The walk back is only over a head still ringing: a Press left to ring right out, then a fresh Open hit
+    // from silence, starts at its own pitch (the bend once waited out the silence and bent the new hit).
+    {
+        Instance b;
+        b.setup ({ { "Source", 0.0 }, { "FM Index", 0.0 }, { "Timbre", 0.0 }, { "Bloom", 0.0 }, { "Drift", 0.0 }, { "Bend", 0.0 },
+                   { "Snap", 0.0 }, { "Decay", 0.0 }, { "Echo", 0.0 }, { "Space", 0.0 }, { "Sequencer", 0.0 }, { "Tune", 0.0 },
+                   { "Human", 0.0 }, { "Notes", b.valueOf ("Notes", "Strokes") } });
+        // Key 43 Press, key 36 Open, both at Tune; the gate (Decay at 0) has long closed between them.
+        const auto rung = b.keys (144000, { { 0, 43, 0.9, true }, { 6000, 43, 0.0, false }, { 96000, 36, 0.9, true }, { 102000, 36, 0.0, false } });
+        CHECK (pitchOf (rung, 2000, 5000, 48000.0) > 135.0);              // the press was leaning
+        CHECK (peakOf (rung, 48000, 96000) < 1e-4);                       // and then silence
+        CHECK_NEAR (pitchOf (rung, 96400, 99000, 48000.0), 130.81, 2.5);  // the fresh hit unbent from its start
+    }
+    // A choke ends the bend with the sound: Press against the held-open gate, a choke, then Open.
+    {
+        Instance b;
+        b.setup ({ { "Source", 0.0 }, { "FM Index", 0.0 }, { "Timbre", 0.0 }, { "Bloom", 0.0 }, { "Drift", 0.0 }, { "Bend", 0.0 },
+                   { "Echo", 0.0 }, { "Space", 0.0 }, { "Sequencer", 0.0 }, { "Open", 1.0 }, { "Tune", 0.0 }, { "Human", 0.0 },
+                   { "Notes", b.valueOf ("Notes", "Strokes") } });
+        const auto choked = perform (b, 96000, { padOn (0, 43), PadEvent { 24000, PadEvent::choke, 43, 0.0 }, padOn (48000, 36) },
+                                     stoppedAll(), 128, false);
+        CHECK_NEAR (pitchOf (choked, 20000, 23000, 48000.0), 146.8, 2.0);
+        CHECK (peakOf (choked, 26000, 48000) < 1e-4);
+        CHECK_NEAR (pitchOf (choked, 48500, 52000, 48000.0), 130.81, 2.0);
+        CHECK_NEAR (pitchOf (choked, 70000, 90000, 48000.0), 130.81, 1.5);
+    }
 }
 
 void testExtremes()

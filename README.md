@@ -29,13 +29,13 @@ Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melo
 - **Cost**: about 91,000 instructions a 128-frame block playing (1.9 % of one of the MPC's cores), 2,000 stopped;
   a page frame about 378,000 instructions in the PLAY benchmark, redrawing only what moved.
 
-Version 0.3.2. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
+Version 0.3.3. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
 
 ## Install
 
 Copy `Mystik.clap` (built as below, or from the card's staging) to the card as
 `Melodee/Plugins/hdslave/hdslave Mystik.clap`, with this README and `LICENSE-OFL-departure-mono.txt`.
-Load it on a plug-in track. The page shows on Edit and Stage's EDIT under hdslaveOS.
+Load it on a plug-in track. The custom screen uses `melodee.screen/1` on Melodee 0.7 and hdslaveOS based on it. Open Edit on the plug-in track or select PANEL on Stage.
 
 ## Playing it
 

@@ -21,8 +21,8 @@ int main (int argc, char** argv)
     // As Melodee: a screen host is there, so the engine keeps its report for the page, as on the MPC.
     static const clap_host host { CLAP_VERSION, nullptr, "bench", "", "", "1",
                                   [] (const clap_host*, const char* id) -> const void* {
-                                      static const clap_host_melodee_screen screen { [] (const clap_host*) {} };
-                                      return std::strcmp (id, CLAP_EXT_MELODEE_SCREEN_HOST) == 0 ? (const void*) &screen : nullptr;
+                                      static const melodee_screen_host_t screen { [] (const void*, uint32_t) {} };
+                                      return std::strcmp (id, MELODEE_SCREEN_CLAP_HOST) == 0 ? (const void*) &screen : nullptr;
                                   },
                                   [] (const clap_host*) {}, [] (const clap_host*) {}, [] (const clap_host*) {} };
     clap_entry.init ("");
@@ -90,14 +90,15 @@ int main (int argc, char** argv)
     };
 
     // The page: one whole paint first, then a frame every 40 ms (15 blocks).
-    const auto* screen = static_cast<const clap_plugin_melodee_screen*> (plugin->get_extension (plugin, CLAP_EXT_MELODEE_SCREEN));
-    std::vector<uint32_t> pixels (MELODEE_SCREEN_WIDTH * MELODEE_SCREEN_HEIGHT, 0);
-    melodee_screen_canvas_t canvas {};
-    canvas.pixels = pixels.data();
-    canvas.width = MELODEE_SCREEN_WIDTH, canvas.height = MELODEE_SCREEN_HEIGHT, canvas.stride = MELODEE_SCREEN_WIDTH;
-    canvas.playing = true;
-    for (auto& k : canvas.knobs)
-        k = { -1, true };
+    const auto* screen = static_cast<const melodee_screen_t*> (plugin->get_extension (plugin, MELODEE_SCREEN_CLAP));
+    std::vector<uint32_t> pixels (MELODEE_SCREEN_WIDTH * MELODEE_SCREEN_PAGE_HEIGHT, 0);
+    melodee_screen_frame_t frame {};
+    frame.pixels = pixels.data();
+    frame.width = MELODEE_SCREEN_WIDTH, frame.height = MELODEE_SCREEN_PAGE_HEIGHT, frame.stride = MELODEE_SCREEN_WIDTH;
+    frame.area = MELODEE_SCREEN_PAGE;
+    frame.playing = 1;
+    for (int k = 0; k < 3; ++k)
+        frame.pots[k] = -1, frame.pots_live[k] = 1;
     int painted = 0;
 
     const uint64_t blocks = (uint64_t) (seconds * rate / block);
@@ -112,9 +113,9 @@ int main (int argc, char** argv)
         sum += left[0];
         if (mode == "paint" && n % 15 == 0)
         {
-            canvas.now_ms = 1000 + n * block * 1000 / (uint64_t) rate;
-            canvas.whole = n == 0;
-            painted += screen->paint (plugin, &canvas) ? 1 : 0;
+            frame.time_ms = 1000 + n * block * 1000 / (uint64_t) rate;
+            frame.redraw_all = n == 0 ? 1u : 0u;
+            painted += screen->draw (plugin, &frame) ? 1 : 0;
         }
     }
     const double us = std::chrono::duration<double, std::micro> (std::chrono::steady_clock::now() - t0).count();

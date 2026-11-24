@@ -45,12 +45,12 @@ const void* hostExtension (const clap_host*, const char* id)
                                                textRescans += (f & CLAP_PARAM_RESCAN_TEXT) != 0;
                                            },
                                            [] (const clap_host*, clap_id, clap_param_clear_flags) {}, [] (const clap_host*) { ++flushes; } };
-    static const clap_host_melodee_screen screen { [] (const clap_host*) { ++paints; } };
+    static const melodee_screen_host_t screen { [] (const void*, uint32_t) { ++paints; } };
     static const clap_host_preset_load presetLoad {
         [] (const clap_host*, uint32_t, const char*, const char*, int32_t, const char*) { ++presetErrors; },
         [] (const clap_host*, uint32_t, const char*, const char*) { ++presetsLoaded; },
     };
-    if (std::strcmp (id, CLAP_EXT_MELODEE_SCREEN_HOST) == 0) return &screen;
+    if (std::strcmp (id, MELODEE_SCREEN_CLAP_HOST) == 0) return &screen;
     if (std::strcmp (id, CLAP_EXT_LOG) == 0) return &log;
     if (std::strcmp (id, CLAP_EXT_PARAMS) == 0) return &params;
     if (std::strcmp (id, CLAP_EXT_PRESET_LOAD) == 0) return &presetLoad;
@@ -352,7 +352,7 @@ void testDescription()
     clap_audio_port_info info {};
     CHECK (audio->get (a.plugin, 0, false, &info) && info.channel_count == 2);
     CHECK (notes && notes->count (a.plugin, true) == 1);
-    CHECK (a.plugin->get_extension (a.plugin, CLAP_EXT_MELODEE_SCREEN) != nullptr);
+    CHECK (a.plugin->get_extension (a.plugin, MELODEE_SCREEN_CLAP) != nullptr);
     // Activation refuses a rate it cannot run at.
     const clap_plugin* p = factory->create_plugin (factory, &host, d->id);
     CHECK (p->init (p));
@@ -981,8 +981,8 @@ void testHold()
     {
         Instance a;
         a.setup (dry);
-        const auto* screen = static_cast<const clap_plugin_melodee_screen*> (a.plugin->get_extension (a.plugin, CLAP_EXT_MELODEE_SCREEN));
-        melodee_screen_input_t next { MELODEE_SCREEN_NUDGE, 1, false }, play { MELODEE_SCREEN_PUSH, 0, true };
+        const auto* screen = static_cast<const melodee_screen_t*> (a.plugin->get_extension (a.plugin, MELODEE_SCREEN_CLAP));
+        melodee_screen_input_t next { MELODEE_SCREEN_STEP, 1, 0 }, play { MELODEE_SCREEN_PUSH, 0, 1 };
         CHECK (screen != nullptr && screen->input (a.plugin, &next) && screen->input (a.plugin, &play));
         const auto out = a.play (48000 * 3, false);
         CHECK (peakOf (out, 0, 4800) > 0.01);
@@ -1758,20 +1758,21 @@ void testExtremes()
 void testScreen (const std::string& folder)
 {
     Instance a;
-    const auto* screen = static_cast<const clap_plugin_melodee_screen*> (a.plugin->get_extension (a.plugin, CLAP_EXT_MELODEE_SCREEN));
+    const auto* screen = static_cast<const melodee_screen_t*> (a.plugin->get_extension (a.plugin, MELODEE_SCREEN_CLAP));
     CHECK (screen != nullptr);
     if (screen == nullptr) return;
-    std::vector<uint32_t> pixels (MELODEE_SCREEN_WIDTH * MELODEE_SCREEN_HEIGHT, 0);
-    melodee_screen_canvas_t canvas {};
-    canvas.pixels = pixels.data();
-    canvas.width = MELODEE_SCREEN_WIDTH, canvas.height = MELODEE_SCREEN_HEIGHT, canvas.stride = MELODEE_SCREEN_WIDTH;
-    canvas.accent = 0xffff8a3d;
-    for (auto& k : canvas.knobs) k = { -1, true };
+    std::vector<uint32_t> pixels (MELODEE_SCREEN_WIDTH * MELODEE_SCREEN_PAGE_HEIGHT, 0);
+    melodee_screen_frame_t frame {};
+    frame.pixels = pixels.data();
+    frame.width = MELODEE_SCREEN_WIDTH, frame.height = MELODEE_SCREEN_PAGE_HEIGHT, frame.stride = MELODEE_SCREEN_WIDTH;
+    frame.area = MELODEE_SCREEN_PAGE;
+    frame.colour = 0x00ff8a3du;
+    for (int k = 0; k < 3; ++k) frame.pots[k] = -1, frame.pots_live[k] = 1;
     uint64_t now = 1000;
-    auto paint = [&] (bool whole = false) { canvas.whole = whole, canvas.now_ms = now; return screen->paint (a.plugin, &canvas); };
+    auto paint = [&] (bool whole = false) { frame.redraw_all = whole ? 1u : 0u, frame.time_ms = now; return screen->draw (a.plugin, &frame); };
     auto shot = [&] (const std::string& name) { paint (true); CHECK (writePng ((folder + "/screen-" + name + ".png").c_str(), pixels.data(), 320, 218, 320, 2)); };
-    auto in = [&] (uint32_t kind, int value, bool shift = false) { melodee_screen_input_t e { kind, value, shift }; return screen->input (a.plugin, &e); };
-    auto knobs = [&] () { std::vector<clap_id> ids (3); screen->knobs (a.plugin, ids.data()); return ids; };
+    auto in = [&] (uint32_t kind, int value, bool shift = false) { melodee_screen_input_t e { kind, value, shift ? 1u : 0u }; return screen->input (a.plugin, &e); };
+    auto knobs = [&] () { std::vector<uint32_t> ids (3); screen->controls (a.plugin, ids.data()); return ids; };
     auto play = [&] (uint32_t frames, bool playing, double from = 0.0) {
         std::vector<float> l, r;
         a.render (frames, 128, l, r, [&] (uint64_t at) { return playing ? playingFrom (from, 120.0, 48000.0, at) : stopped(); });
@@ -1794,7 +1795,7 @@ void testScreen (const std::string& folder)
     CHECK ((knobs() == std::vector<clap_id> { a.id ("Strike"), a.id ("Bloom"), a.id ("Accent") }));
     CHECK (in (MELODEE_SCREEN_WHEEL, -1));
     // Playing: the page asks to be painted as the steps go by and the light glows.
-    canvas.playing = true;
+    frame.playing = 1;
     asked = paints;
     play (48000, true);
     CHECK (paints > asked + 4);
@@ -1807,9 +1808,9 @@ void testScreen (const std::string& folder)
     CHECK (in (MELODEE_SCREEN_PUSH, 0));
     CHECK (a.value ("Sequencer") == 1.0);
     // SEQ: the wheel picks step 3; Push cycles its trig; K1-K3 are its Pitch, Stroke and Chance.
-    CHECK (in (MELODEE_SCREEN_NUDGE, 1));
+    CHECK (in (MELODEE_SCREEN_STEP, 1));
     CHECK (in (MELODEE_SCREEN_WHEEL, 2));
-    CHECK ((knobs() == std::vector<clap_id> { a.id ("Pitch 3"), a.id ("Stroke 3"), a.id ("Chance 3") }));
+    CHECK ((knobs() == std::vector<uint32_t> { a.id ("Pitch 3"), a.id ("Stroke 3"), a.id ("Chance 3") }));
     const double trig = a.value ("Trig 3");
     CHECK (in (MELODEE_SCREEN_PUSH, 0));
     CHECK (a.value ("Trig 3") == std::fmod (trig + 1.0, 5.0));
@@ -1827,11 +1828,11 @@ void testScreen (const std::string& folder)
     const char* names[] = { "skin", "osc", "gate", "fx", "mode" };
     for (const char* name : names)
     {
-        CHECK (in (MELODEE_SCREEN_NUDGE, 1));
+        CHECK (in (MELODEE_SCREEN_STEP, 1));
         play (12000, true, 8.0);
         shot (name);
     }
-    CHECK ((knobs() == std::vector<clap_id> { a.id ("Sequencer"), a.id ("Seq Mode"), a.id ("Rate") }));
+    CHECK ((knobs() == std::vector<uint32_t> { a.id ("Sequencer"), a.id ("Seq Mode"), a.id ("Rate") }));
     CHECK (in (MELODEE_SCREEN_WHEEL, 1));
     CHECK (in (MELODEE_SCREEN_PUSH, 0));
     CHECK (in (MELODEE_SCREEN_WHEEL, 2));
@@ -1846,23 +1847,23 @@ void testScreen (const std::string& folder)
         shot (n);
     }
     // Minus and Plus go round; Shift shows the controls.
-    CHECK (in (MELODEE_SCREEN_NUDGE, 1));
-    canvas.shift = true;
+    CHECK (in (MELODEE_SCREEN_STEP, 1));
+    frame.shift = 1;
     shot ("shift");
-    canvas.shift = false;
+    frame.shift = 0;
     // Every preset draws on every page (a whole paint each).
     for (const char* key : { "acid-gate", "singing-bowl", "feedback-witch", "tabla-teental" })
     {
         CHECK (a.loadPreset (key));
         for (int p = 0; p < 7; ++p)
         {
-            in (MELODEE_SCREEN_NUDGE, 1);
+            in (MELODEE_SCREEN_STEP, 1);
             play (2400, true, 0.0);
             CHECK (paint (true));
         }
     }
     CHECK (a.loadPreset ("mystik"));
-    for (int p = 0; p < 7; ++p) in (MELODEE_SCREEN_NUDGE, -1);
+    for (int p = 0; p < 7; ++p) in (MELODEE_SCREEN_STEP, -1);
     play (24000, true, 0.0);
     shot ("play-default");
 
@@ -1892,7 +1893,7 @@ void testScreen (const std::string& folder)
     play (24000, true, 0.0);
     now += 40;
     paint();
-    CHECK (in (MELODEE_SCREEN_NUDGE, 1)); // to SEQ
+    CHECK (in (MELODEE_SCREEN_STEP, 1)); // to SEQ
     play (128, true, 1.0);
     now += 40;
     paint();
@@ -1911,7 +1912,7 @@ void testScreen (const std::string& folder)
     CHECK (paints == askedNow);
     // A drone (Open) on PLAY keeps it moving while the host runs it; once the host stops running it (asleep), the light
     // it last told is not animated for ever.
-    CHECK (in (MELODEE_SCREEN_NUDGE, -1)); // back to PLAY
+    CHECK (in (MELODEE_SCREEN_STEP, -1)); // back to PLAY
     a.setup ({ { "Sequencer", 0.0 }, { "Open", 1.0 } });
     play (24000, false);
     now += 40;

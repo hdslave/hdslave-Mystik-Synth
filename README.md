@@ -2,7 +2,16 @@
 
 **A west-coast physical hand drum, Buchla-style vactrol low-pass gate, and 6-mode sequencer as a CLAP plug-in for the Akai MPC Sample.**
 
-![Mystik seven acid-rave pages running in hdslaveOS](docs/mystik-pages.gif)
+<table>
+  <tr>
+    <th width="34%">MPC Sample</th>
+    <th width="66%">macOS and Windows · CLAP</th>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/mystik-pages.gif"><img src="docs/mystik-pages.gif" alt="Mystik seven acid-rave pages running in hdslaveOS"></a></td>
+    <td align="center"><a href="mac-clap/assets/desktop-preview.gif"><img src="mac-clap/assets/desktop-preview.gif" alt="Mystik percussion voices and sequencer during playback"></a></td>
+  </tr>
+</table>
 
 > **Desktop CLAP version (macOS & Windows):** A separate desktop CLAP build with all MPC screens on one interactive panel lives in [**`mac-clap/`**](mac-clap/) (`cd mac-clap && ./install-macos.sh`). Releases in this repo stay MPC Sample-only for now while the desktop builds are being finalized.
 

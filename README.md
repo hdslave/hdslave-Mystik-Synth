@@ -8,7 +8,7 @@
     <th width="66%">macOS and Windows · CLAP</th>
   </tr>
   <tr>
-    <td align="center"><a href="docs/mystik-pages.gif"><img src="docs/mystik-pages.gif" alt="Mystik seven acid-rave pages running in hdslaveOS"></a></td>
+    <td align="center"><a href="docs/mystik-pages.gif"><img src="docs/mystik-pages.gif" alt="Mystik PLAY, SEQ, and MODE screens running in hdslaveOS"></a></td>
     <td align="center"><a href="mac-clap/assets/desktop-preview.gif"><img src="mac-clap/assets/desktop-preview.gif" alt="Mystik percussion voices and sequencer during playback"></a></td>
   </tr>
 </table>

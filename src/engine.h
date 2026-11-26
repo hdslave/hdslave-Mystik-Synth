@@ -91,7 +91,7 @@ public:
         queueSize = 0;
         held = 0;
         padStep = -1;
-        padSounding = padHitsQueued = false;
+        padSounding = keySounding = padHitsQueued = false;
         transpose = 0.0f;
         st = SeqState {};
         lightCounter = 0;
@@ -188,6 +188,7 @@ public:
             voice.strike (h);
         }
         remember (key);
+        keySounding = true;
     }
 
     void noteOff (int key)
@@ -209,10 +210,11 @@ public:
             else if (held == 0)
                 voice.release();
         }
-        else if (held == 0 && padSounding)
-            voice.release(); // a step pad let go before the sequence struck again: its Hold ends with it
+        else if (held == 0 && (padSounding || keySounding))
+            voice.release(); // a step pad, or a key struck before the sequence ran, let go before the sequence struck
+                             // again: its Hold ends with it
         if (held == 0)
-            padSounding = false;
+            padSounding = keySounding = false;
     }
 
     // The page plays a step (its pitch, trig and stroke; a rest plays as a hit). No key is held to end it: its gate ends
@@ -227,8 +229,8 @@ public:
         enqueue (now + (uint64_t) std::max (1.0, knob[ParamId::gate] * rate * 0.125), Queued::release, Hit {}, -1);
     }
 
-    void choke() { voice.choke(), fx.cut(), held = 0, queueSize = 0, padStep = -1, padSounding = false; }
-    void allNotesOff() { held = 0, padSounding = false, voice.release(); }
+    void choke() { voice.choke(), fx.cut(), held = 0, queueSize = 0, padStep = -1, padSounding = keySounding = false; }
+    void allNotesOff() { held = 0, padSounding = keySounding = false, voice.release(); }
     void allSoundOff() { choke(), fx.silence(); }
     void wheel (float bend, float mod) { voice.wheel (bend, mod); }
 
@@ -696,7 +698,7 @@ private:
         // The step takes the drum from a step pad: one struck on this frame gives way (a step plays at full force, so
         // it is never the softer, and it comes later), and a pad's flam or roll still to come is dropped.
         padStep = -1;
-        padSounding = false;
+        padSounding = keySounding = false;
         if (padHitsQueued)
             dropPadHits();
         playDecision (d, k);
@@ -933,6 +935,9 @@ private:
     int padStep = -1;       // the step pad struck on this frame, still to play (-1: none)
     float padVelocity = 0.0f;
     bool padSounding = false; // the drum plays a step pad's strike, not the sequence's: the pad's note off ends Hold
+    // A key struck the drum (the host stopped, or the sequencer off) and no step has played since: its note off ends
+    // Hold even when the sequence runs by then (a key then transposes; it took the drum before).
+    bool keySounding = false;
     bool padPlaying = false, padHitsQueued = false;
     static constexpr int queueCapacity = 48;
     Queued queue[queueCapacity] {};

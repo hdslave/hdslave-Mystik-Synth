@@ -1346,6 +1346,52 @@ void testPads()
     }
 }
 
+// A key struck while keys play the drum (the host stopped, or the sequencer off) and let go once the sequence runs:
+// its note off still ends its Hold. To 0.3.3 only a step pad's did, so the key's Hold stayed lit until a step's gate
+// ended, and for good when no step played. Here no step plays (every step a Rest), so the drum must sound exactly as it
+// does with the host stopped, or the sequencer off, throughout.
+void testHoldAcrossPlay()
+{
+    auto patch = [] (Instance& a, double sequencer) {
+        a.setup ({ { "Echo", 0.0 }, { "Space", 0.0 }, { "Hold", 0.6 }, { "Decay", 0.0 }, { "Ring", 0.0 }, { "Density", 0.5 },
+                   { "Sequencer", sequencer } });
+        for (int s = 1; s <= 16; ++s) a.setup ({ { "Trig " + std::to_string (s), 0.0 } });
+    };
+    const auto playFrom = [] (uint64_t start) {
+        return [=] (uint64_t at) { return at < start ? stopped() : playingFrom (0.0, 120.0, 48000.0, at - start); };
+    };
+    // Key 72 (no step pad) struck with the host stopped, Play at 12,032, the key let go at 24,000; and the key hit again
+    // before Play as hdslaveOS sends it (on, on, off).
+    for (bool again : { false, true })
+    {
+        Instance a, b;
+        patch (a, 1.0), patch (b, 1.0);
+        std::vector<PadEvent> list { padOn (100, 72), padOff (24000, 72) };
+        if (again) list.insert (list.begin() + 1, padOn (6000, 72));
+        const auto out = perform (a, 48000 * 3, list, playFrom (12032), 128, false);
+        const auto ref = perform (b, 48000 * 3, list, stoppedAll(), 128, false);
+        CHECK (peakOf (ref, 20000, 24000) > 1e-3); // stopped: lit while held,
+        CHECK (peakOf (ref, 48000 * 2) < 1e-5);    // and it ends with the key
+        CHECK (peakOf (out, 20000, 24000) > 1e-3);
+        if (peakOf (out, 48000 * 2) >= 1e-5)
+            std::printf ("  a key%s let go after Play: Hold stays lit, %.6f two seconds on\n", again ? " hit twice," : "", peakOf (out, 48000 * 2));
+        CHECK (peakOf (out, 48000 * 2) < 1e-5);
+        CHECK (out == ref);
+    }
+    // The sequencer switched on under a held key while the host plays.
+    {
+        Instance a, b;
+        patch (a, 0.0), patch (b, 0.0);
+        const auto out = perform (a, 48000 * 3, { padOn (100, 72), paramEvent (6000, "Sequencer", 1.0), padOff (24000, 72) }, playingAll(), 128, false);
+        const auto ref = perform (b, 48000 * 3, { padOn (100, 72), padOff (24000, 72) }, playingAll(), 128, false);
+        CHECK (peakOf (ref, 20000, 24000) > 1e-3 && peakOf (ref, 48000 * 2) < 1e-5);
+        if (peakOf (out, 48000 * 2) >= 1e-5)
+            std::printf ("  a key let go after the sequencer came on: Hold stays lit, %.6f two seconds on\n", peakOf (out, 48000 * 2));
+        CHECK (peakOf (out, 48000 * 2) < 1e-5);
+        CHECK (out == ref);
+    }
+}
+
 void testRegenerate()
 {
     Instance a;
@@ -1996,6 +2042,7 @@ int main (int argc, char** argv)
     run ("notes", testNotes);
     run ("hold", testHold);
     run ("pads", testPads);
+    run ("holdplay", testHoldAcrossPlay);
     run ("regenerate", testRegenerate);
     run ("echo-dc", testEchoDc);
     run ("wrap", testWrap);

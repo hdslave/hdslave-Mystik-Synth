@@ -91,7 +91,7 @@ public:
         queueSize = 0;
         held = 0;
         padStep = -1;
-        padSounding = keySounding = padHitsQueued = false;
+        padSounding = keySounding = padHitsQueued = slideHeld = false;
         transpose = 0.0f;
         st = SeqState {};
         lightCounter = 0;
@@ -196,10 +196,11 @@ public:
         const bool pad = isPad (key);
         forget (key);
         const int back = held > 0 && keySounding && (int) knob[ParamId::notes] == 0 && ! pad && ! (seqOn() && playing) ? newestKey() : -1;
-        if (back >= 0)
+        if (back >= 0 && ! voice.asleep())
         {
             // Back to the key still held, gliding, while the keys play the drum. Once a step or the page's audition has
-            // taken it, a key let go slides nowhere: the slide would light Hold again, and no key would end it.
+            // taken it, a key let go slides nowhere: the slide would light Hold again, and no key would end it. Nor
+            // onto a drum gone quiet: a key let go strikes nothing (the slide would be a new hit, at full force).
             Hit h;
             h.slide = true;
             h.hold = knob[ParamId::hold] > 0.0f;
@@ -219,13 +220,17 @@ public:
     {
         applyKnobs();
         padSounding = keySounding = false; // it takes the drum, as a step does: a key let go during it leaves its gate
+        // The gate ends still to come are the older strikes' (a step's, an audition's): the audition's own ends its
+        // Hold, and no step's gate is held on for a slide any more.
+        dropQueued ([] (const Queued& q) { return q.kind == Queued::release; });
+        slideHeld = false;
         Decision d = stepDecision (s);
         d.slide = false;
         playDecision (d, -1);
-        enqueue (now + (uint64_t) std::max (1.0, knob[ParamId::gate] * rate * 0.125), Queued::release, Hit {}, -1);
+        enqueue (now + (uint64_t) std::max (1.0, knob[ParamId::gate] * rate * 0.125), Queued::release, Hit {}, auditionClock);
     }
 
-    void choke() { voice.choke(), fx.cut(), held = 0, queueSize = 0, padStep = -1, padSounding = keySounding = false; }
+    void choke() { voice.choke(), fx.cut(), held = 0, queueSize = 0, padStep = -1, padSounding = keySounding = slideHeld = false; }
     void allNotesOff() { held = 0, padSounding = keySounding = false, voice.release(); }
     void allSoundOff() { choke(), fx.silence(); }
     void wheel (float bend, float mod) { voice.wheel (bend, mod); }
@@ -357,6 +362,7 @@ private:
     // --- Keys and step pads ----------------------------------------------------------------------------------------
     static constexpr int firstPad = 36; // pad 1 (A01) at hdslaveOS's defaults; pads 1-16 are keys 36-51
     static constexpr int64_t padClock = -2; // marks a step pad's further hits in the queue
+    static constexpr int64_t auditionClock = -3; // marks the page's audition's gate end in the queue
     bool isPad (int key) const { return seqOn() && key >= firstPad && key < firstPad + steps; }
 
     void remember (int key)
@@ -689,14 +695,24 @@ private:
         shownPlace = d.place;
         shownCycle = length();
         if (! d.play)
+        {
+            // The gate end before was held on for this step's slide, and the step does not play (Density, a Trig,
+            // Length, the mode, Rate or a new Seed changed since): that gate ends now, or Hold would stay lit.
+            if (slideHeld && ! ((padSounding || keySounding) && held > 0))
+                voice.release();
+            slideHeld = false;
             return;
+        }
+        slideHeld = false;
         clockedLoud = true;
         // The step takes the drum from a step pad: one struck on this frame gives way (a step plays at full force, so
-        // it is never the softer, and it comes later), and a pad's flam or roll still to come is dropped.
+        // it is never the softer, and it comes later), and a pad's flam or roll still to come is dropped. It takes it
+        // from the page's audition too, whose gate end would end the step's Hold early.
         padStep = -1;
         padSounding = keySounding = false;
         if (padHitsQueued)
             dropPadHits();
+        dropQueued ([] (const Queued& q) { return q.kind == Queued::release && q.clock == auditionClock; });
         playDecision (d, k);
     }
 
@@ -826,7 +842,10 @@ private:
             SeqState ahead = st;
             const Decision next = decide (q.clock + 1, ahead);
             if (next.play && next.slide && mode() != SeqMode::bounce)
+            {
+                slideHeld = true; // clock() ends it if that step does not play after all
                 return;
+            }
         }
         if ((padSounding || keySounding) && held > 0)
             return; // a step pad or a key struck since and still held: its Hold ends with its note
@@ -838,18 +857,34 @@ private:
     // The gate ends now (Stop, or the Sequencer switched off): its queued ends go, and with them the sequence's
     // own hits still to come (a roll's, a bounce's), which belong to the playing that just stopped. A key's, a
     // step pad's or the page's further hits stay: they are live playing, which a Stop does not choke. A key or step
-    // pad that struck since and is still held keeps its Hold too: it ends with the key.
+    // pad that struck since and is still held keeps its Hold too: it ends with the key. So does the page's audition,
+    // whose gate end is still to come only while no step has taken the drum from it: it ends at its time.
     void releaseGate()
     {
+        bool auditioning = false;
         for (int i = 0; i < queueSize; ++i)
-            if (queue[i].kind == Queued::release || queue[i].sequenced)
+            if (queue[i].kind == Queued::release && queue[i].clock == auditionClock)
+                auditioning = true;
+            else if (queue[i].kind == Queued::release || queue[i].sequenced)
             {
                 for (int j = i; j + 1 < queueSize; ++j)
                     queue[j] = queue[j + 1];
                 --queueSize, --i;
             }
-        if (! ((padSounding || keySounding) && held > 0))
+        slideHeld = false;
+        if (! auditioning && ! ((padSounding || keySounding) && held > 0))
             voice.release();
+    }
+    // The queued hits and gate ends `gone` picks, dropped.
+    template <class Pick> void dropQueued (Pick gone)
+    {
+        for (int i = 0; i < queueSize; ++i)
+            if (gone (queue[i]))
+            {
+                for (int j = i; j + 1 < queueSize; ++j)
+                    queue[j] = queue[j + 1];
+                --queueSize, --i;
+            }
     }
     // A step pad's flam or roll hits still to come, dropped when the sequence strikes.
     void dropPadHits()
@@ -938,6 +973,9 @@ private:
     // Hold even when the sequence runs by then (a key then transposes; it took the drum before), and while it is held
     // neither a Stop nor the sequencer switched off ends it.
     bool keySounding = false;
+    // A step's gate end was held on for the next step's slide, which has not played yet: if that step does not play
+    // after all, its clock ends the gate.
+    bool slideHeld = false;
     bool padPlaying = false, padHitsQueued = false;
     static constexpr int queueCapacity = 48;
     Queued queue[queueCapacity] {};

@@ -1508,6 +1508,31 @@ void testHoldAcrossPlay()
             CHECK (peakOf (out, 48000 * 2) < 1e-5);
             CHECK (out == ref);
         }
+        // While the sequence plays: step 1 at 0 (its gate end due at 3,000), the audition at 2,048. The audition keeps
+        // its gate to its own end (5,048), as with the steps at 1/8 (step 1's end due at 6,000), and a Stop at 2,560
+        // inside it leaves it too, as playing on does (the steps after are rests). To 0.3.5's fourth build step 1's
+        // gate end, and the Stop, ended the audition's Hold early.
+        {
+            const auto steps = [&] (Instance& a, double rate) {
+                patch (a, 1.0);
+                a.setup ({ { "Trig 1", 1.0 }, { "Stroke 1", 0.0 }, { "Swing", 0.5 }, { "Gate", 0.5 }, { "Rate", rate } });
+            };
+            Instance a, b, c;
+            steps (a, 5.0), steps (b, 3.0), steps (c, 5.0);
+            const auto sixteenths = audition (a, 2048, {}, playingAll());
+            const auto eighths = audition (b, 2048, {}, playingAll());
+            const auto stopIn = audition (c, 2048, {}, [] (uint64_t at) { return at < 2560 ? playingFrom (0.0, 120.0, 48000.0, at) : stopped(); });
+            const auto cut = [] (const std::vector<float>& x) { return std::vector<float> (x.begin(), x.begin() + 90000); };
+            CHECK (peakOf (sixteenths, 4600, 5000) > 1e-3);
+            if (cut (sixteenths) != cut (eighths))
+                std::printf ("  an audition while the sequence plays: %.6f before its gate end, not %.6f\n", peakOf (sixteenths, 4600, 5000),
+                             peakOf (eighths, 4600, 5000));
+            CHECK (cut (sixteenths) == cut (eighths));
+            if (cut (stopIn) != cut (sixteenths))
+                std::printf ("  an audition, then Stop inside its gate: %.6f before its gate end, not %.6f\n", peakOf (stopIn, 4600, 5000),
+                             peakOf (sixteenths, 4600, 5000));
+            CHECK (cut (stopIn) == cut (sixteenths));
+        }
     }
     // Two keys struck stopped and held through Play, where a step takes the drum, then Stop; the newer key let go while
     // that step still rings slides nowhere (the keys no longer play the drum), so Hold does not light again and
@@ -1525,6 +1550,32 @@ void testHoldAcrossPlay()
             std::printf ("  two keys held through Play, the newer let go after Stop: Hold stays lit, %.6f two seconds on\n", peakOf (out, 48000 * 2));
         CHECK (peakOf (out, 48000 * 2) < 1e-5);
         CHECK (out == ref);
+    }
+    // A gate end held on for the next step's slide, and that step then not played: the default pattern at Swing 50 %,
+    // step 11's gate end (63,000) held for step 12's slide (66,000), and Density turned to 0 between them. The gate ends
+    // at step 12's clock. To 0.3.5's fourth build Hold stayed lit, a drone until Stop or the next step played.
+    {
+        Instance a;
+        a.setup ({ { "Echo", 0.0 }, { "Space", 0.0 }, { "Hold", 0.6 }, { "Decay", 0.0 }, { "Ring", 0.0 }, { "Swing", 0.5 } });
+        const auto out = perform (a, 48000 * 3, { paramEvent (64000, "Density", 0.0) }, playingAll(), 128, false);
+        CHECK (peakOf (out, 60000, 63000) > 1e-3);
+        if (peakOf (out, 120000, 144000) >= 1e-5)
+            std::printf ("  a slide that never comes: Hold stays lit, %.6f at 2.5 to 3 s\n", peakOf (out, 120000, 144000));
+        CHECK (peakOf (out, 120000, 144000) < 1e-5);
+    }
+    // Notes: Pitch, Hold 0, two keys held until the drum has gone quiet, then the newer let go: nothing sounds. To 0.3.5's
+    // fourth build the slide back onto the sleeping drum struck it anew at full force, louder than the keys' own hits.
+    for (double sequencer : { 1.0, 0.0 })
+    {
+        Instance a;
+        a.setup ({ { "Echo", 0.0 }, { "Space", 0.0 }, { "Hold", 0.0 }, { "Sequencer", sequencer } });
+        const auto out = perform (a, 48000 * 3, { padOn (1000, 60, 0.3), padOn (1500, 64, 0.3), padOff (120000, 64), padOff (130000, 60) },
+                                  stoppedAll(), 128, false);
+        CHECK (peakOf (out, 1000, 24000) > 0.01);
+        CHECK (peakOf (out, 100000, 120000) < 1e-5); // quiet before the key is let go
+        if (peakOf (out, 120000, 139000) >= 1e-5)
+            std::printf ("  a key let go onto a sleeping drum: %.4f (the keys' own hits %.4f)\n", peakOf (out, 120000, 139000), peakOf (out, 1000, 24000));
+        CHECK (peakOf (out, 120000, 139000) < 1e-5);
     }
 }
 

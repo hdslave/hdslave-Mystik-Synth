@@ -353,6 +353,7 @@ public:
     float frequency() const { return lastF0; }
     float lastStrikeForce() const { return lastForce; }
     bool lastStrikeAccented() const { return lastAccent; }
+    bool asleep() const { return idle; } // the drum has gone quiet: the next strike starts it from silence
 
 private:
     static int clampBody (int b) { return b < 0 ? 0 : (b >= bodyCount ? bodyCount - 1 : b); }

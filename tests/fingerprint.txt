@@ -30,7 +30,7 @@ rate-44100 0ed8474f45e03215
 rate-96000 20e9cc2635a2175f
 transport-jumps d8cfd9b0d4feb714
 transport-loop 57bc599e5cb0b072
-knobs-moving e16908943945fbc2
+knobs-moving 5d23f405f4f75056
 random-0 4cf361fd9cfdfc76
 random-1 3ee46cbaf18cc03d
 random-2 fde6448ea866edbf

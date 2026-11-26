@@ -7,6 +7,13 @@ Separate desktop CLAP build of **hdslave Mystik** for **FL Studio** (2024+) and 
 - **Multi-Screen MPC Dashboard:** displays all of hdslave Mystik's native MPC screens simultaneously on one resizable Retina/HiDPI panel (with the hardware `K1`–`K3` footer panels removed) and direct mouse, trackpad, and touch control over every parameter, plot, sequencer, and pad.
 - **Standalone from the MPC Sample build:** this directory is completely separate from the MPC Sample build in the repository root (`../src`, `../build.sh`). GitHub releases remain MPC Sample-only for now while the desktop builds are being finalized.
 
+## Known issues
+
+- The engine's queue of hits and gate ends holds 48. When it is full, an audition's gate end is dropped, and Hold stays
+  lit until the next strike or the next gate end.
+- The glue runs the page's presses before the block's transport, so a press on the block where Play or Stop lands sees
+  the transport of the block before.
+
 ## Build & Install (macOS)
 
 Requires Xcode Command Line Tools and CMake 3.20+ (Ninja optional):

@@ -1449,6 +1449,24 @@ void testHoldAcrossPlay()
             if (out != ref) std::printf ("  a key struck after an audition, then Play: %.6f while held, not %.6f\n", peakOf (out, 20000, 24000), peakOf (ref, 20000, 24000));
             CHECK (out == ref);
         }
+        // A key struck stopped and held through an audition: the audition's gate ends at its time, and the key held on
+        // past it changes nothing, with the host stopped throughout or Play before the key is let go. To 0.3.5's first
+        // build the audition's gate end, with the key held, did not end Hold, and after Play the key's note off did not
+        // either: Hold stayed lit for good on rests.
+        {
+            Instance a, b, c;
+            patch (a, 1.0), patch (b, 1.0), patch (c, 1.0);
+            const auto out = audition (a, 2048, { padOn (1000, 72), padOff (14000, 72) }, playFrom (12032));
+            const auto ref = audition (b, 2048, { padOn (1000, 72), padOff (14000, 72) }, stoppedAll());
+            const auto later = audition (c, 2048, { padOn (1000, 72), padOff (36000, 72) }, stoppedAll());
+            CHECK (peakOf (ref, 2048, 4800) > 1e-3 && peakOf (ref, 48000 * 2) < 1e-5);
+            if (peakOf (out, 48000 * 2) >= 1e-5)
+                std::printf ("  a key held through an audition, Play, the key let go: Hold stays lit, %.6f two seconds on\n", peakOf (out, 48000 * 2));
+            CHECK (peakOf (out, 48000 * 2) < 1e-5);
+            CHECK (out == ref);
+            if (later != ref) std::printf ("  a key held past an audition's gate: %.6f after it, not %.6f\n", peakOf (later, 15000, 36000), peakOf (ref, 15000, 36000));
+            CHECK (later == ref);
+        }
     }
 }
 

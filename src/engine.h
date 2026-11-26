@@ -834,8 +834,10 @@ private:
         }
         if ((padSounding || keySounding) && held > 0)
             return; // a step pad or a key struck since and still held: its Hold ends with its note
-        if (held == 0 || (seqOn() && playing))
-            voice.release();
+        // No held key plays the drum: none is held, or a step or the page's audition has taken it from the keys still
+        // held (the sequence's own gate ends are gone after a Stop, see releaseGate). So an audition's gate ends at its
+        // time even with an older key held: that key's note off, later, may come after Play, when it ends nothing.
+        voice.release();
     }
     // The gate ends now (Stop, or the Sequencer switched off): its queued ends go, and with them the sequence's
     // own hits still to come (a roll's, a bounce's), which belong to the playing that just stopped. A key's, a

@@ -749,8 +749,9 @@ private:
         }
         if (keySounding && held > 0)
             return; // a key struck since and still held: its Hold ends with its note
-        if (held == 0 || (seqOn() && playing))
-            voice.release();
+        // No held key plays the drum: none is held, or a step or the page's audition has taken it from the keys still
+        // held. So an audition's gate ends at its time even with an older key held.
+        voice.release();
     }
     void releaseGate()
     {

@@ -222,7 +222,7 @@ public:
     void audition (int s)
     {
         applyKnobs();
-        padSounding = false;
+        padSounding = keySounding = false; // it takes the drum, as a step does: a key let go during it leaves its gate
         Decision d = stepDecision (s);
         d.slide = false;
         playDecision (d, -1);
@@ -832,14 +832,15 @@ private:
             if (next.play && next.slide && mode() != SeqMode::bounce)
                 return;
         }
-        if (padSounding && held > 0)
-            return; // a step pad struck since and still held: its Hold ends with its note
+        if ((padSounding || keySounding) && held > 0)
+            return; // a step pad or a key struck since and still held: its Hold ends with its note
         if (held == 0 || (seqOn() && playing))
             voice.release();
     }
     // The gate ends now (Stop, or the Sequencer switched off): its queued ends go, and with them the sequence's
     // own hits still to come (a roll's, a bounce's), which belong to the playing that just stopped. A key's, a
-    // step pad's or the page's further hits stay: they are live playing, which a Stop does not choke.
+    // step pad's or the page's further hits stay: they are live playing, which a Stop does not choke. A key or step
+    // pad that struck since and is still held keeps its Hold too: it ends with the key.
     void releaseGate()
     {
         for (int i = 0; i < queueSize; ++i)
@@ -849,7 +850,7 @@ private:
                     queue[j] = queue[j + 1];
                 --queueSize, --i;
             }
-        if (! (padSounding && held > 0))
+        if (! ((padSounding || keySounding) && held > 0))
             voice.release();
     }
     // A step pad's flam or roll hits still to come, dropped when the sequence strikes.
@@ -936,7 +937,8 @@ private:
     float padVelocity = 0.0f;
     bool padSounding = false; // the drum plays a step pad's strike, not the sequence's: the pad's note off ends Hold
     // A key struck the drum (the host stopped, or the sequencer off) and no step has played since: its note off ends
-    // Hold even when the sequence runs by then (a key then transposes; it took the drum before).
+    // Hold even when the sequence runs by then (a key then transposes; it took the drum before), and while it is held
+    // neither a Stop nor the sequencer switched off ends it.
     bool keySounding = false;
     bool padPlaying = false, padHitsQueued = false;
     static constexpr int queueCapacity = 48;

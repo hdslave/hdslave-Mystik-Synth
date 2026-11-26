@@ -85,6 +85,7 @@ public:
         clockedLoud = false;
         queueSize = 0;
         held = 0;
+        keySounding = false;
         transpose = 0.0f;
         st = SeqState {};
         lightCounter = 0;
@@ -177,6 +178,7 @@ public:
         }
         if (held < (int) (sizeof (heldKeys) / sizeof (heldKeys[0])))
             heldKeys[held++] = key;
+        keySounding = true;
     }
 
     void noteOff (int key)
@@ -199,6 +201,10 @@ public:
         }
         else if (held == 0 && ! (seqOn() && playing))
             voice.release();
+        else if (held == 0 && keySounding)
+            voice.release(); // a key struck before the sequence ran, let go before it struck: its Hold ends with it
+        if (held == 0)
+            keySounding = false;
     }
 
     // The page plays a step (its pitch, trig and stroke; a rest plays as a hit). No key is held to end it: its gate ends
@@ -206,14 +212,15 @@ public:
     void audition (int s)
     {
         applyKnobs();
+        keySounding = false; // it takes the drum, as a step does: a key let go during it leaves its gate
         Decision d = stepDecision (s);
         d.slide = false;
         playDecision (d, -1);
         enqueue (now + (uint64_t) std::max (1.0, knob[ParamId::gate] * rate * 0.125), Queued::release, Hit {}, -1);
     }
 
-    void choke() { voice.choke(), fx.cut(), held = 0, queueSize = 0; }
-    void allNotesOff() { held = 0, voice.release(); }
+    void choke() { voice.choke(), fx.cut(), held = 0, queueSize = 0, keySounding = false; }
+    void allNotesOff() { held = 0, keySounding = false, voice.release(); }
     void allSoundOff() { choke(), fx.silence(); }
     void wheel (float bend, float mod) { voice.wheel (bend, mod); }
 
@@ -611,6 +618,7 @@ private:
         if (! d.play)
             return;
         clockedLoud = true;
+        keySounding = false; // the step takes the drum
         playDecision (d, k);
     }
 
@@ -739,6 +747,8 @@ private:
             if (next.play && next.slide && mode() != SeqMode::bounce)
                 return;
         }
+        if (keySounding && held > 0)
+            return; // a key struck since and still held: its Hold ends with its note
         if (held == 0 || (seqOn() && playing))
             voice.release();
     }
@@ -751,7 +761,8 @@ private:
                     queue[j] = queue[j + 1];
                 --queueSize, --i;
             }
-        voice.release();
+        if (! (keySounding && held > 0))
+            voice.release(); // a key that struck since and is still held keeps its Hold: it ends with the key
     }
 
     // --- For the screen --------------------------------------------------------------------------------------------
@@ -819,6 +830,10 @@ private:
     float transpose = 0.0f;
     int heldKeys[16] {};
     int held = 0;
+    // A key struck the drum (the host stopped, or the sequencer off) and no step has played since: its note off ends
+    // Hold even when the sequence runs by then (a key then transposes; it took the drum before), and while it is held
+    // neither a Stop nor the sequencer switched off ends it.
+    bool keySounding = false;
     static constexpr int queueCapacity = 48;
     Queued queue[queueCapacity] {};
     int queueSize = 0;

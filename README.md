@@ -36,9 +36,9 @@ Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melo
 - **The effects**: Drive, Crush, a ping-pong Echo synced to the tempo with Absorb in its loop, Space (a spring-like
   tank of dispersive allpasses).
 - **Cost**: about 91,000 instructions a 128-frame block playing (1.9 % of one of the MPC's cores), 2,000 stopped;
-  a page frame about 378,000 instructions in the PLAY benchmark, redrawing only what moved.
+  a page frame about 380,000 instructions in the PLAY benchmark, redrawing only what moved.
 
-Version 0.3.4. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
+Version 0.3.5. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
 
 ## Install
 
@@ -69,8 +69,9 @@ the drum back. In Euclid, Turing, Automaton, Bounce and Rhythm a pad plays the s
 not Turing's pitches, the accents Euclid and Automaton add, or a timeline's strokes). Two pads at once: the louder
 plays. A pad struck just as the sequence plays a step gives way to that step. While a pad is held, Hold keeps the gate
 lit, until the pad is let go or the sequence's next step takes over. The other keys: with the song playing, a key
-transposes the pattern (from C3, latched); stopped, keys play the drum as Notes says. A key struck while stopped and
-still held when the song starts keeps Hold lit until it is let go, or until the sequence's next step takes over.
+transposes the pattern (from C3, latched); stopped, keys play the drum as Notes says. A key that struck the drum
+(stopped, or with the Sequencer off) keeps Hold lit while it is held, through Play, Stop or the Sequencer switched
+off, until it is let go or a step of the sequence, or of SEQ's Shift + Push, takes the drum.
 **Sequencer off: the pads play
 notes**, as Notes says: **Pitch** (the key sets the pitch from C3; velocity 100 or more accents; overlapping keys slide
 and hold), **Strokes** (keys 36-43 play the eight strokes at Tune, each 8 keys up an octave: two drums, high and low,
@@ -203,7 +204,7 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
     tools/bench.sh           # instructions a block (callgrind): worst, acid, typical, stopped, a page frame
     ./build.sh fingerprint-update   # only after a change meant to change the sound
 
-- `tests/host.cpp` (716,020 checks): the description, every parameter's text both ways (a step's Pitch by its note's
+- `tests/host.cpp` (727,488 checks): the description, every parameter's text both ways (a step's Pitch by its note's
   name too), state (a 0.1 state keeping Human at 0, a newer version refused), presets, the gate held
   to the 292's response at seven settings, the vactrol's timing, steps to the sample (swing too), every sequencer mode,
   stop and Play again, a loop the host tells a block late sounding as one told on time in Turing, Brownian and
@@ -214,7 +215,8 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
   sounding instance settling at once, a press interrupted letting its bend fall back and a fresh hit once it has
   rung out, or after a choke, starting unbent, the same output in blocks of 1, 37, 128 and 4096 frames,
   keys and MIDI, Hold ending with the note (a flam's, roll's or bounce's later hits do not light it again; a key
-  struck while stopped, or with the Sequencer off, and let go once the sequence runs), the step
+  struck while stopped, or with the Sequencer off, and let go once the sequence runs; Stop and the Sequencer off
+  leaving a held key's Hold; SEQ's Shift + Push taking the drum from a key and giving it to a key struck after), the step
   pads (each pad against Notes: Steps and against the sequence playing that step, their pitches stopped and playing,
   the sequence and the transposition left as they were, Turing's register too, the other keys still transposing, the
   sequencer off, two pads on a frame, on/on/off, a pad on Play's frame, Hold while the sequence plays, a pad's roll
@@ -226,7 +228,7 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
   pages in Melodee's screen, the K1-K3 bindings), with the hdslaveOS checkout mounted read-only.
 
 Cost (callgrind, 128-frame blocks at 48 kHz; about 4.8 million cycles a block on the MPC's 1.8 GHz A55): worst
-97,700, acid 88,600, typical 91,200, stopped 2,000 instructions a block; a PLAY frame while it plays about 378,000.
+97,400, acid 88,600, typical 91,100, stopped 2,000 instructions a block; a PLAY frame while it plays about 380,000.
 The voice runs at twice the rate (a 47-tap half-band filter brings it down, its 12 symmetric pairs as three NEON
 multiply-adds), the membrane is two four-lane vectors, the spring's two sides one two-lane vector,
 the slow parts (pitch, the membrane's angles, the vactrol's time constants, the gate's coefficients) are worked out

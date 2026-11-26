@@ -1390,6 +1390,66 @@ void testHoldAcrossPlay()
         CHECK (peakOf (out, 48000 * 2) < 1e-5);
         CHECK (out == ref);
     }
+    // A Stop, or the sequencer switched off, ends the sequence's gate, not a held key's Hold: the key still plays the
+    // drum, and its note off ends it. To 0.3.4 both cut it while the key was held.
+    struct Case { const char* what; double sequencer; std::function<Transport (uint64_t)> transport; std::vector<PadEvent> extra; };
+    const Case cases[] = {
+        { "the sequencer off, a key held while playing, then Stop", 0.0, [] (uint64_t at) { return at < 12032 ? playingFrom (0.0, 120.0, 48000.0, at) : stopped(); }, {} },
+        { "a key struck stopped, Play, then Stop", 1.0, [] (uint64_t at) { return at >= 12032 && at < 18048 ? playingFrom (0.0, 120.0, 48000.0, at - 12032) : stopped(); }, {} },
+        { "stopped, a key held, the sequencer switched off", 1.0, stoppedAll(), { paramEvent (12000, "Sequencer", 0.0) } },
+    };
+    for (const auto& c : cases)
+    {
+        Instance a, b;
+        patch (a, c.sequencer), patch (b, c.sequencer);
+        std::vector<PadEvent> list { padOn (100, 72), padOff (24000, 72) };
+        list.insert (list.begin() + 1, c.extra.begin(), c.extra.end());
+        const auto out = perform (a, 48000 * 3, list, c.transport, 128, false);
+        // The same with nothing changed: the sequencer off playing throughout, on and stopped throughout.
+        const auto ref = perform (b, 48000 * 3, { padOn (100, 72), padOff (24000, 72) }, c.sequencer < 0.5 ? playingAll() : stoppedAll(), 128, false);
+        CHECK (peakOf (ref, 20000, 24000) > 1e-3 && peakOf (ref, 48000 * 2) < 1e-5);
+        if (out != ref) std::printf ("  %s: %.6f while the key is held, not %.6f\n", c.what, peakOf (out, 20000, 24000), peakOf (ref, 20000, 24000));
+        CHECK (out == ref);
+    }
+    // The page's audition (Shift + Push) takes the drum as a step does: its Hold ends at its gate, not with a key struck
+    // before it and let go during it (here a key struck stopped, Play, the audition, the key let go); and a key struck
+    // after an audition takes the drum from it: the audition's gate end, come after Play, leaves the held key's Hold.
+    {
+        const auto audition = [&] (Instance& a, uint64_t when, const std::vector<PadEvent>& list, const std::function<Transport (uint64_t)>& transport) {
+            const auto* screen = static_cast<const melodee_screen_t*> (a.plugin->get_extension (a.plugin, MELODEE_SCREEN_CLAP));
+            CHECK (screen != nullptr);
+            std::vector<float> l, r;
+            a.render (48000 * 3, 128, l, r, transport, [&] (uint64_t at, uint32_t n, Events& e) {
+                if (screen != nullptr && when >= at && when < at + n)
+                {
+                    melodee_screen_input_t next { MELODEE_SCREEN_STEP, 1, 0 }, play { MELODEE_SCREEN_PUSH, 0, 1 };
+                    CHECK (screen->input (a.plugin, &next) && screen->input (a.plugin, &play));
+                }
+                for (const auto& v : list)
+                    if (v.frame >= at && v.frame < at + n)
+                        e.note ((uint32_t) (v.frame - at), v.kind == PadEvent::on ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF, (int16_t) v.key, v.value);
+            });
+            return l;
+        };
+        {
+            Instance a, b;
+            patch (a, 1.0), patch (b, 1.0);
+            const auto out = audition (a, 12800, { padOn (100, 72), padOff (14000, 72) }, playFrom (12032));
+            const auto ref = audition (b, 12800, { padOn (100, 72), padOff (36000, 72) }, playFrom (12032)); // let go after the gate
+            CHECK (peakOf (ref, 15000, 18000) > 1e-3 && peakOf (ref, 48000 * 2) < 1e-5);
+            if (out != ref) std::printf ("  a key let go during an audition: %.6f in its gate, not %.6f\n", peakOf (out, 15000, 18000), peakOf (ref, 15000, 18000));
+            CHECK (out == ref);
+        }
+        {
+            Instance a, b;
+            patch (a, 1.0), patch (b, 1.0);
+            const auto out = audition (a, 0, { padOn (1000, 72), padOff (24000, 72) }, playFrom (1408));
+            const auto ref = audition (b, 0, { padOn (1000, 72), padOff (24000, 72) }, stoppedAll());
+            CHECK (peakOf (ref, 20000, 24000) > 1e-3 && peakOf (ref, 48000 * 2) < 1e-5);
+            if (out != ref) std::printf ("  a key struck after an audition, then Play: %.6f while held, not %.6f\n", peakOf (out, 20000, 24000), peakOf (ref, 20000, 24000));
+            CHECK (out == ref);
+        }
+    }
 }
 
 void testRegenerate()

@@ -1467,6 +1467,20 @@ void testHoldAcrossPlay()
             if (later != ref) std::printf ("  a key held past an audition's gate: %.6f after it, not %.6f\n", peakOf (later, 15000, 36000), peakOf (ref, 15000, 36000));
             CHECK (later == ref);
         }
+        // And a key struck before the audition and let go inside its gate, the host stopped (the Sequencer on or off):
+        // the audition keeps its gate, as when the host plays. To 0.3.5's second build the note off ended Hold at once.
+        for (double sequencer : { 1.0, 0.0 })
+        {
+            Instance a, b;
+            patch (a, sequencer), patch (b, sequencer);
+            const auto out = audition (a, 2048, { padOn (1000, 72), padOff (3000, 72) }, stoppedAll());
+            const auto ref = audition (b, 2048, { padOn (1000, 72), padOff (36000, 72) }, stoppedAll());
+            CHECK (peakOf (ref, 3000, 4800) > 1e-3);
+            if (out != ref)
+                std::printf ("  the Sequencer %s, a key let go during an audition: %.6f in its gate, not %.6f\n", sequencer > 0.5 ? "on" : "off",
+                             peakOf (out, 3200, 4800), peakOf (ref, 3200, 4800));
+            CHECK (out == ref);
+        }
     }
 }
 

@@ -195,24 +195,19 @@ public:
     {
         const bool pad = isPad (key);
         forget (key);
-        if (! (seqOn() && playing))
+        const int back = held > 0 && (int) knob[ParamId::notes] == 0 && ! pad && ! (seqOn() && playing) ? newestKey() : -1;
+        if (back >= 0)
         {
-            const int back = held > 0 && (int) knob[ParamId::notes] == 0 && ! pad ? newestKey() : -1;
-            if (back >= 0)
-            {
-                // Back to the key still held, gliding.
-                Hit h;
-                h.slide = true;
-                h.hold = knob[ParamId::hold] > 0.0f;
-                h.semis = (float) (back - 60);
-                voice.strike (h);
-            }
-            else if (held == 0)
-                voice.release();
+            // Back to the key still held, gliding.
+            Hit h;
+            h.slide = true;
+            h.hold = knob[ParamId::hold] > 0.0f;
+            h.semis = (float) (back - 60);
+            voice.strike (h);
         }
         else if (held == 0 && (padSounding || keySounding))
-            voice.release(); // a step pad, or a key struck before the sequence ran, let go before the sequence struck
-                             // again: its Hold ends with it
+            voice.release(); // the last key or step pad that plays the drum let go: its Hold ends with it. Keys a step
+                             // or the page's audition took the drum from leave that gate: it ends Hold, stopped or not
         if (held == 0)
             padSounding = keySounding = false;
     }

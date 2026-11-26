@@ -199,10 +199,9 @@ public:
             h.semis = (float) (heldKeys[held - 1] - 60);
             voice.strike (h);
         }
-        else if (held == 0 && ! (seqOn() && playing))
-            voice.release();
         else if (held == 0 && keySounding)
-            voice.release(); // a key struck before the sequence ran, let go before it struck: its Hold ends with it
+            voice.release(); // the last key that plays the drum let go: its Hold ends with it. Keys a step or the page's
+                             // audition took the drum from leave that gate: it ends Hold, stopped or not
         if (held == 0)
             keySounding = false;
     }

@@ -1481,6 +1481,50 @@ void testHoldAcrossPlay()
                              peakOf (out, 3200, 4800), peakOf (ref, 3200, 4800));
             CHECK (out == ref);
         }
+        // Two keys held (Notes: Pitch), the audition, the newer key let go inside its gate: the audition plays on, with
+        // no glide back to the older key. To 0.3.5's third build the note off struck the older key, sliding.
+        for (double sequencer : { 1.0, 0.0 })
+        {
+            Instance a, b;
+            patch (a, sequencer), patch (b, sequencer);
+            const auto out = audition (a, 2048, { padOn (1000, 72), padOn (1500, 74), padOff (3000, 74), padOff (40000, 72) }, stoppedAll());
+            const auto ref = audition (b, 2048, { padOn (1000, 72), padOn (1500, 74), padOff (36000, 74), padOff (40000, 72) }, stoppedAll());
+            CHECK (peakOf (ref, 3000, 4800) > 1e-3);
+            if (out != ref)
+                std::printf ("  the Sequencer %s, two keys held, the newer let go during an audition: %.6f in its gate, not %.6f\n",
+                             sequencer > 0.5 ? "on" : "off", peakOf (out, 3200, 4800), peakOf (ref, 3200, 4800));
+            CHECK (out == ref);
+        }
+        // The same, the newer key let go after the audition's gate while the drum still rings: no slide lights Hold
+        // again, and nothing stays lit once the keys are let go. A slide there would light it for good, as no key
+        // plays the drum to end it.
+        {
+            Instance a, b;
+            patch (a, 1.0), patch (b, 1.0);
+            const auto out = audition (a, 2048, { padOn (1000, 72), padOn (1500, 74), padOff (8000, 74), padOff (40000, 72) }, stoppedAll());
+            const auto ref = audition (b, 2048, { padOn (1000, 72), padOn (1500, 74), padOff (36000, 74), padOff (40000, 72) }, stoppedAll());
+            if (peakOf (out, 48000 * 2) >= 1e-5)
+                std::printf ("  two keys held, the newer let go after an audition's gate: Hold stays lit, %.6f two seconds on\n", peakOf (out, 48000 * 2));
+            CHECK (peakOf (out, 48000 * 2) < 1e-5);
+            CHECK (out == ref);
+        }
+    }
+    // Two keys struck stopped and held through Play, where a step takes the drum, then Stop; the newer key let go while
+    // that step still rings slides nowhere (the keys no longer play the drum), so Hold does not light again and
+    // nothing is left lit once both are let go. A slide there would light it for good, as no key plays the drum to end
+    // it.
+    {
+        Instance a, b;
+        patch (a, 1.0), patch (b, 1.0);
+        for (int s = 1; s <= 16; ++s) a.setup ({ { "Trig " + std::to_string (s), 1.0 } }), b.setup ({ { "Trig " + std::to_string (s), 1.0 } });
+        const auto playThenStop = [] (uint64_t at) { return at >= 6016 && at < 12032 ? playingFrom (0.0, 120.0, 48000.0, at - 6016) : stopped(); };
+        const auto out = perform (a, 48000 * 3, { padOn (1000, 72), padOn (1500, 74), padOff (12416, 74), padOff (20000, 72) }, playThenStop, 128, false);
+        const auto ref = perform (b, 48000 * 3, { padOn (1000, 72), padOn (1500, 74), padOff (30000, 74), padOff (36000, 72) }, playThenStop, 128, false);
+        CHECK (peakOf (ref, 12416, 12544) > 1e-3); // the step at 12,016 still rings after Stop
+        if (peakOf (out, 48000 * 2) >= 1e-5)
+            std::printf ("  two keys held through Play, the newer let go after Stop: Hold stays lit, %.6f two seconds on\n", peakOf (out, 48000 * 2));
+        CHECK (peakOf (out, 48000 * 2) < 1e-5);
+        CHECK (out == ref);
     }
 }
 

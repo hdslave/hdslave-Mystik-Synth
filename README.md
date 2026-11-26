@@ -72,7 +72,8 @@ lit, until the pad is let go or the sequence's next step takes over. The other k
 transposes the pattern (from C3, latched); stopped, keys play the drum as Notes says. A key that struck the drum
 (stopped, or with the Sequencer off) keeps Hold lit while it is held, through Play, Stop or the Sequencer switched
 off, until it is let go or a step of the sequence, or of SEQ's Shift + Push, takes the drum. Shift + Push's step
-keeps its gate for Gate's share of an eighth of a second, whether a key is held or not.
+keeps its gate for Gate's share of an eighth of a second, whether a key is held or not, and a key let go meanwhile
+does not slide back to another one held; nor does one let go once a step has taken the drum.
 **Sequencer off: the pads play
 notes**, as Notes says: **Pitch** (the key sets the pitch from C3; velocity 100 or more accents; overlapping keys slide
 and hold), **Strokes** (keys 36-43 play the eight strokes at Tune, each 8 keys up an octave: two drums, high and low,
@@ -205,7 +206,7 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
     tools/bench.sh           # instructions a block (callgrind): worst, acid, typical, stopped, a page frame
     ./build.sh fingerprint-update   # only after a change meant to change the sound
 
-- `tests/host.cpp` (735,525 checks): the description, every parameter's text both ways (a step's Pitch by its note's
+- `tests/host.cpp` (744,738 checks): the description, every parameter's text both ways (a step's Pitch by its note's
   name too), state (a 0.1 state keeping Human at 0, a newer version refused), presets, the gate held
   to the 292's response at seven settings, the vactrol's timing, steps to the sample (swing too), every sequencer mode,
   stop and Play again, a loop the host tells a block late sounding as one told on time in Turing, Brownian and
@@ -218,7 +219,8 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
   keys and MIDI, Hold ending with the note (a flam's, roll's or bounce's later hits do not light it again; a key
   struck while stopped, or with the Sequencer off, and let go once the sequence runs; Stop and the Sequencer off
   leaving a held key's Hold; SEQ's Shift + Push taking the drum from a key, let go during its gate or held on past it, Play
-  or not, and giving it to a key struck after), the step
+  or not, two keys held and the newer let go sliding nowhere, and giving it to a key struck after; two keys held
+  through Play, the newer let go after Stop), the step
   pads (each pad against Notes: Steps and against the sequence playing that step, their pitches stopped and playing,
   the sequence and the transposition left as they were, Turing's register too, the other keys still transposing, the
   sequencer off, two pads on a frame, on/on/off, a pad on Play's frame, Hold while the sequence plays, a pad's roll

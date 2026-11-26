@@ -195,10 +195,11 @@ public:
     {
         const bool pad = isPad (key);
         forget (key);
-        const int back = held > 0 && (int) knob[ParamId::notes] == 0 && ! pad && ! (seqOn() && playing) ? newestKey() : -1;
+        const int back = held > 0 && keySounding && (int) knob[ParamId::notes] == 0 && ! pad && ! (seqOn() && playing) ? newestKey() : -1;
         if (back >= 0)
         {
-            // Back to the key still held, gliding.
+            // Back to the key still held, gliding, while the keys play the drum. Once a step or the page's audition has
+            // taken it, a key let go slides nowhere: the slide would light Hold again, and no key would end it.
             Hit h;
             h.slide = true;
             h.hold = knob[ParamId::hold] > 0.0f;

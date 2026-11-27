@@ -83,7 +83,9 @@ public:
         lastStep = -1;
         now = 0;
         clockedAt = -(int64_t (1) << 40);
-        clockedLoud = replayWanted = false;
+        clockedLoud = false;
+        clockSnapshot = liveHitsQueued = false;
+        liveMark = noClock;
         queueSize = 0;
         held = 0;
         owner = -1;
@@ -213,7 +215,9 @@ public:
         slideHeld = false;
         Decision d = stepDecision (s);
         d.slide = false;
+        liveMark = auditionClock; // its flam's or roll's further hits are the audition's: a step that plays drops them
         playDecision (d, noClock);
+        liveMark = noClock;
         enqueue (now + (uint64_t) std::max (1.0, knob[ParamId::gate] * rate * 0.125), Queued::release, Hit {}, auditionClock);
     }
 
@@ -254,11 +258,6 @@ public:
     void render (float* left, float* right, uint32_t frames)
     {
         applyKnobs();
-        if (replayWanted) // the step a loop's wrap told late decides again (relocate), on this frame
-        {
-            replayWanted = false;
-            clock (lastStep);
-        }
         float* out = left;
         bool silentRun = true;
         while (frames > 0)
@@ -399,10 +398,17 @@ private:
         if (jumped && std::fabs ((double) ((int64_t) now - clockedAt) - late) <= 2.0)
         {
             lastStep = b;
-            // It plays when the frame's audio starts (render), after the frame's notes and the page's presses, as a
-            // step told on time does: a key transposes it, and it takes the drum from an audition on this frame.
-            if (! clockedLoud)
-                replayWanted = true;
+            if (! clockedLoud && clockSnapshot)
+            {
+                // That step was silent, but deciding it moved the modes' state on (Turing's register, Brownian's
+                // walk, the automaton's generations). Clock b from the state that step was decided from, by the
+                // clock's own road (its Sequencer switch, a fresh start, a new Seed), so the state moves on once
+                // for the step, as if the wrap had been told on time. It plays now, before this frame's notes and the
+                // page's presses: the step really began on the wrap's frame, inside the block before, so they come
+                // after it, as they would told on time.
+                st = preClockState;
+                clock (b);
+            }
             return;
         }
         lastStep = b - (late < window ? 1 : 0);
@@ -638,6 +644,7 @@ private:
             if (telemetry != nullptr)
                 for (auto& g : telemetry->generations) g.store (0, std::memory_order_relaxed);
         }
+        preClockState = st, clockSnapshot = true; // a wrap told late decides this step again from here (relocate)
         const Decision d = decide (k, st);
         st.fresh = false;
         shownPlace = d.place;
@@ -657,10 +664,15 @@ private:
         // audition's, an older ball's (a loop shorter than Bounce's cycle drops a new one each time round), a step's
         // whose gate runs past a loop's wrap, or one a Rate change or a tempo change has left running past this step.
         // Each would end this step's Hold early; its own end comes in their place. A gate end due on this very frame
-        // has fired first, except for the step a late wrap decides again (relocate, then render's first frame), which
-        // drops it: harmless, as this step strikes on the same frame. (One held for a slide into this step is
-        // slideHeld.)
+        // has fired first, except for the step a late wrap decides again (relocate, in transport()), which drops one
+        // due on the frame it is told: harmless, as this step strikes on that frame. (One held for a slide into this
+        // step is slideHeld.)
         owner = -1;
+        if (liveHitsQueued) // the page's audition's flam or roll hits still to come go too
+        {
+            dropQueued ([] (const Queued& q) { return q.kind == Queued::hit && q.clock == auditionClock; });
+            liveHitsQueued = false;
+        }
         dropQueued ([] (const Queued& q) { return q.kind == Queued::release; });
         playDecision (d, k);
     }
@@ -699,7 +711,7 @@ private:
             voice.strike (grace);
             Hit main = h;
             main.stroke = Stroke::open, main.follow = true;
-            enqueue (now + (uint64_t) std::lround (0.022 * rate), Queued::hit, main, noClock, isStep (k));
+            enqueue (now + (uint64_t) std::lround (0.022 * rate), Queued::hit, main, liveMark, isStep (k));
             return;
         }
         if (h.stroke == Stroke::roll && ! h.slide)
@@ -715,7 +727,7 @@ private:
                 if (i == 0)
                     voice.strike (r);
                 else
-                    enqueue (now + (uint64_t) std::lround (at), Queued::hit, r, noClock, isStep (k));
+                    enqueue (now + (uint64_t) std::lround (at), Queued::hit, r, liveMark, isStep (k));
                 at += gap, gap *= 0.7;
             }
             return;
@@ -785,6 +797,7 @@ private:
                 queue[j] = queue[j + 1];
             --queueSize;
         }
+        liveHitsQueued |= kind == Queued::hit && k == auditionClock;
         int i = queueSize++;
         while (i > 0 && queue[i - 1].at > at)
             queue[i] = queue[i - 1], --i;
@@ -914,6 +927,8 @@ private:
     uint64_t now = 0;
     uint32_t lastBlock = 0, regenerations = 0;
     SeqState st;
+    SeqState preClockState; // `st` as the last clock found it, for deciding that step again on a late wrap
+    bool clockSnapshot = false;
     float transpose = 0.0f;
     int heldKeys[16] {};
     int held = 0;
@@ -932,7 +947,10 @@ private:
     static constexpr int64_t noClock = std::numeric_limits<int64_t>::min();
     static constexpr int64_t auditionClock = noClock + 2;
     static bool isStep (int64_t k) { return k > auditionClock; }
-    bool replayWanted = false; // relocate's step b, still to play when the frame's audio starts
+    // Whose flam or roll strikeWithStroke queues the further hits of: the page's audition's (auditionClock), a key's
+    // or a step's (noClock). A step that plays drops the audition's.
+    int64_t liveMark = noClock;
+    bool liveHitsQueued = false;
     static constexpr int queueCapacity = 48;
     Queued queue[queueCapacity] {};
     int queueSize = 0;

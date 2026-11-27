@@ -3,7 +3,7 @@
 // holds the Hold rules the MPC build's tests/host.cpp holds for the same code: Hold follows the key that struck the
 // drum last, a step's Hold is not cut by an older strike's gate end, a gate end is never lost, Stop takes the
 // sequence's queued hits, a block's first-frame notes and presses come after its transport, a pre-roll's steps have
-// their gate ends, and a late wrap's step plays after the frame's presses.
+// their gate ends, and a late wrap's step plays as told on time.
 //   hold_test
 #include "melodee_screen.h"
 
@@ -51,7 +51,8 @@ struct Event
 };
 Event keyOn (uint64_t f, int key, double v = 0.9) { return { f, Event::on, key, v }; }
 Event keyOff (uint64_t f, int key) { return { f, Event::off, key, 0.0 }; }
-Event audition (uint64_t f) { return { f, Event::audition }; } // SEQ's Shift + Push on step 1, before the block it lands in
+// SEQ's Shift + Push before the block it lands in, on step 1 or `cursor` steps on from it (the wheel turned first)
+Event audition (uint64_t f, int cursor = 0) { return { f, Event::audition, cursor }; }
 
 struct Instance
 {
@@ -119,10 +120,13 @@ struct Instance
                 Any a {};
                 if (e.kind == Event::audition)
                 {
-                    melodee_screen_input_t next { MELODEE_SCREEN_STEP, 1, 0 }, push { MELODEE_SCREEN_PUSH, 0, 1 };
+                    melodee_screen_input_t next { MELODEE_SCREEN_STEP, 1, 0 }, wheel { MELODEE_SCREEN_WHEEL, e.key, 0 },
+                        push { MELODEE_SCREEN_PUSH, 0, 1 };
                     if (! onSeq)
                         CHECK (screen->input (plugin, &next));
                     onSeq = true;
+                    if (e.key != 0)
+                        CHECK (screen->input (plugin, &wheel));
                     CHECK (screen->input (plugin, &push));
                     continue;
                 }
@@ -386,11 +390,36 @@ void testGateEnds()
     }
 }
 
-// Two edges of the clock, the same sine through the gate: a host's pre-roll (the song from beat -2) plays its steps
-// before the top with their gate ends (to 0.2.5's second build a clock below 0 was taken for a key's strike: step 16
-// at beat -1 lit Hold for good); and a loop's wrap told a block late plays the step it decides again when the frame's
-// audio starts, after the page's presses (to 0.2.5's second build it played in the transport, and an audition on that
-// frame took the drum from it: the step's Hold ended at the audition's gate).
+double ceilOf (const std::vector<float>& x, size_t from, size_t to) // the loudest 10 ms (480 frames) in [from, to)
+{
+    double high = 0.0;
+    for (size_t w = from; w + 480 <= to; w += 480)
+        high = std::max (high, rmsOf (x, w, w + 480));
+    return high;
+}
+double pitchOf (const std::vector<float>& x, size_t from, size_t to) // Hz, from the upward zero crossings
+{
+    long first = -1, last = -1, count = 0;
+    for (size_t i = from + 1; i < std::min (to, x.size()); ++i)
+        if (x[i - 1] < 0.0f && x[i] >= 0.0f)
+        {
+            if (first < 0) first = (long) i;
+            last = (long) i, ++count;
+        }
+    return count > 1 ? (double) (count - 1) * 48000.0 / (double) (last - first) : 0.0;
+}
+
+// Edges of the clock, the same sine through the gate:
+// - A host's pre-roll (the song from beat -2) plays its steps before the top with their gate ends. To 0.2.5's second
+//   build a clock below 0 was taken for a key's strike: step 16 at beat -1 lit Hold for good.
+// - A loop's wrap told a block late: the step the sequence decides again really began on the wrap's frame, inside the
+//   block before, so it plays as the transport is told, before that frame's notes and presses, as told on time, and
+//   from the state its silent step was decided from (Turing's register and Brownian's walk move once). 0.2.5's third
+//   build played it after them (an audition there lost its strike, a key transposed the step), and to its second
+//   build it was decided again from the state the silent step had moved: Turing and Brownian moved twice.
+// - A call of no frames that tells the wrap, then a Stop: nothing strikes after the Stop.
+// - A step drops the audition's flam and roll hits still to come: to 0.2.5's third build a Roll audition on a step's
+//   frame played its later hits, at its own pitch, over the step.
 void testClockEdges()
 {
     auto tone = [] (Instance& a, int step) {
@@ -399,8 +428,9 @@ void testClockEdges()
                    { "Hold", 0.6 }, { "Swing", 0.5 }, { "Gate", 0.5 }, { "Rate", a.valueOf ("Rate", "1/4") } });
         for (int s = 1; s <= 16; ++s)
             a.setup ({ { "Trig " + std::to_string (s), s == step ? 1.0 : 0.0 }, { "Chance " + std::to_string (s), 1.0 } });
+        a.setup ({ { "Pitch 5", 5.0 } }); // step 5 a fifth up, to tell its strikes apart
     };
-    const double lit = std::pow (10.0, -30.0 / 20.0);
+    const double lit = std::pow (10.0, -30.0 / 20.0), bright = std::pow (10.0, -12.0 / 20.0);
     {
         Instance a;
         tone (a, 16);
@@ -411,17 +441,133 @@ void testClockEdges()
         CHECK (during > lit);
         CHECK (after < 1e-3);
     }
-    for (uint32_t block : { 64u, 128u }) // a 3-beat loop's wrap (frame 72,000) told on time, or 64 frames late
+    // A 3-beat loop at 1/4, step 1 a Hit: the wrap (frame 72,000) told on time with 64-frame blocks, at 72,064 with
+    // 128. Events at 72,064 do the same either way: Hold's level (within 6 dB of its -6 dB here) or dark (under -30 dB)
+    // through the same stretches, and the same pitch.
+    struct Case
     {
-        const uint64_t told = block == 64 ? 72000 : 72064;
+        const char* what;
+        std::vector<Event> events;
+        size_t litFrom, litTo, darkFrom, darkTo, pitchFrom, pitchTo; // 0: no such check
+    };
+    const Case cases[] = {
+        { "the audition (step 1)", { audition (72064) }, 72600, 74800, 82000, 92000, 0, 0 },
+        { "key 65 (it transposes the steps after)", { keyOn (72064, 65), keyOff (73000, 65) }, 74000, 83500, 0, 0, 73000, 83000 },
+    };
+    for (const auto& c : cases)
+    {
+        std::vector<float> run[2];
+        for (int late = 0; late < 2; ++late)
+        {
+            Instance a;
+            tone (a, 1);
+            run[late] = a.run (96000, c.events, looping (3.0), late ? 128 : 64);
+        }
+        for (int late = 0; late < 2; ++late)
+        {
+            const auto& x = run[late];
+            const char* told = late ? "told late" : "on time";
+            if (c.litTo > 0 && floorOf (x, c.litFrom, c.litTo) <= bright)
+                std::printf ("  the wrap %s, %s: under Hold's level at %zu-%zu\n", told, c.what, c.litFrom, c.litTo);
+            if (c.litTo > 0)
+                CHECK (floorOf (x, c.litFrom, c.litTo) > bright);
+            if (c.darkTo > 0 && ceilOf (x, c.darkFrom, c.darkTo) >= lit)
+                std::printf ("  the wrap %s, %s: lit at %zu-%zu\n", told, c.what, c.darkFrom, c.darkTo);
+            if (c.darkTo > 0)
+                CHECK (ceilOf (x, c.darkFrom, c.darkTo) < lit);
+        }
+        if (c.pitchTo > 0)
+        {
+            const double onTime = pitchOf (run[0], c.pitchFrom, c.pitchTo), told = pitchOf (run[1], c.pitchFrom, c.pitchTo);
+            if (std::fabs (told - onTime) > onTime * 0.01)
+                std::printf ("  %s, the wrap told late: %.1f Hz, on time %.1f Hz\n", c.what, told, onTime);
+            CHECK (onTime > 20.0);
+            CHECK (std::fabs (told - onTime) <= onTime * 0.01);
+        }
+    }
+    // Turing, and Brownian with most steps resting, at 1/16 with Length 12 in the 3-beat loop: told late sounds exactly
+    // as told on time (the step at the wrap's frame is step 1 either way).
+    for (int brownian = 0; brownian < 2; ++brownian)
+    {
+        std::vector<float> run[2];
+        for (int late = 0; late < 2; ++late)
+        {
+            Instance a;
+            a.setup ({ { "Source", 1.0 }, { "Snap", 0.0 }, { "Ring", 0.0 }, { "Decay", 0.0 }, { "Bend", 0.0 }, { "Drift", 0.0 }, { "Bloom", 0.0 },
+                       { "Timbre", 0.0 }, { "Echo", 0.0 }, { "Space", 0.0 }, { "Memory", 0.0 }, { "Swing", 0.5 }, { "Density", 0.5 },
+                       { "Position", 0.0 }, { "Human", 0.0 }, { "Rate", a.valueOf ("Rate", "1/16") }, { "Length", 12.0 } });
+            for (int s = 1; s <= 16; ++s)
+                a.setup ({ { "Trig " + std::to_string (s), brownian && s != 1 && s != 7 ? 0.0 : 1.0 }, { "Stroke " + std::to_string (s), 0.0 },
+                           { "Chance " + std::to_string (s), 1.0 }, { "Pitch " + std::to_string (s), 0.0 } });
+            if (brownian)
+                a.setup ({ { "Direction", a.valueOf ("Direction", "Brownian") }, { "Seed", 1.0 } });
+            else
+                a.setup ({ { "Seq Mode", a.valueOf ("Seq Mode", "Turing") }, { "Mutate", 0.3 }, { "Density", 0.6 }, { "Seed", 4.0 } });
+            run[late] = a.run (199680, {}, looping (3.0), late ? 128 : 64);
+        }
+        CHECK (peakOf (run[0], 0, run[0].size()) > 0.01);
+        if (run[1] != run[0])
+        {
+            size_t at = 0;
+            while (at < run[0].size() && run[0][at] == run[1][at])
+                ++at;
+            std::printf ("  %s, the wrap told late: first differs from on time at %zu\n", brownian ? "Brownian" : "Turing", at);
+        }
+        CHECK (run[1] == run[0]);
+    }
+    // A call of no frames tells the wrap, then Stop on the same frame: the step's Hold ends at the Stop.
+    {
         Instance a;
         tone (a, 1);
-        const auto out = a.run (96000, { audition (told) }, looping (3.0), block);
-        const double low = floorOf (out, (size_t) told + 4800, (size_t) told + 11000); // the step's gate runs 12,000 frames
-        if (low <= lit)
-            std::printf ("  the audition on the frame the wrap is told %s: the step's Hold falls to %.1f dB\n", block == 64 ? "on time" : "late",
-                         dbOf (low));
-        CHECK (low > lit);
+        std::vector<float> left (96000, 0.0f), right (96000, 0.0f);
+        uint64_t at = 0;
+        for (int call = 0; at < 96000; ++call)
+        {
+            const uint32_t n = call == 563 ? 0 : (uint32_t) std::min<uint64_t> (128, 96000 - at);
+            const Transport tr = call <= 563 ? looping (3.0) (at) : stopped();
+            clap_event_transport t {};
+            t.header = { sizeof (clap_event_transport), 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_TRANSPORT, 0 };
+            t.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | (tr.playing ? CLAP_TRANSPORT_IS_PLAYING : 0);
+            t.tempo = 120.0;
+            t.song_pos_beats = (clap_beattime) std::llround (tr.beats * (double) CLAP_BEATTIME_FACTOR);
+            clap_input_events in { nullptr, [] (const clap_input_events*) { return 0u; },
+                                   [] (const clap_input_events*, uint32_t) -> const clap_event_header* { return nullptr; } };
+            clap_output_events out { nullptr, [] (const clap_output_events*, const clap_event_header*) { return true; } };
+            float* outs[2] = { left.data() + at, right.data() + at };
+            clap_audio_buffer buffer {};
+            buffer.data32 = outs;
+            buffer.channel_count = 2;
+            clap_process p {};
+            p.steady_time = (int64_t) at;
+            p.frames_count = n;
+            p.transport = &t;
+            p.audio_outputs = &buffer;
+            p.audio_outputs_count = 1;
+            p.in_events = &in;
+            p.out_events = &out;
+            CHECK (a.plugin->process (a.plugin, &p) != CLAP_PROCESS_ERROR);
+            at += n;
+        }
+        if (ceilOf (left, 79000, 90000) >= lit)
+            std::printf ("  a call of no frames tells the wrap, then Stop: lit at 79,000-90,000\n");
+        CHECK (peakOf (left, 72064, 74000) > 0.1);
+        CHECK (ceilOf (left, 79000, 90000) < lit);
+    }
+    // Step 5 a Roll, auditioned on step 1's frame (Play from the top): the step drops the roll's later hits.
+    {
+        std::vector<float> run[2];
+        for (int heard = 0; heard < 2; ++heard)
+        {
+            Instance a;
+            tone (a, 1);
+            a.setup ({ { "Stroke 5", a.valueOf ("Stroke 5", "Roll") } });
+            run[heard] = a.run (24000, heard ? std::vector<Event> { audition (0, 4) } : std::vector<Event> {}, looping (1000.0));
+        }
+        const double ref = pitchOf (run[0], 6000, 11000), out = pitchOf (run[1], 6000, 11000);
+        if (std::fabs (out - ref) > ref * 0.01)
+            std::printf ("  a Roll audition on step 1's frame: %.1f Hz after its hits, step 1 alone %.1f Hz\n", out, ref);
+        CHECK (ref > 20.0);
+        CHECK (std::fabs (out - ref) <= ref * 0.01);
     }
 }
 } // namespace

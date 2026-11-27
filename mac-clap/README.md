@@ -17,7 +17,7 @@ cd mac-clap
 ./install-macos.sh
 ```
 
-`build-macos.sh` runs two tests after the build: `tests/host_test.cpp` (a strict CLAP host loading the bundle: parameters, state, every preset, the panel) and `tests/hold_test.cpp` (the inner plug-in as the bundle runs it: Hold following the key that struck the drum last, no older strike's gate end cutting a step's Hold, a gate end never lost from a full queue, Stop taking the sequence's queued hits, a block's first-frame events in the MPC build's order: settings, transport, notes, then the page's presses; a pre-roll's steps with their gate ends; a late wrap's step after the frame's presses).
+`build-macos.sh` runs two tests after the build: `tests/host_test.cpp` (a strict CLAP host loading the bundle: parameters, state, every preset, the panel) and `tests/hold_test.cpp` (the inner plug-in as the bundle runs it: Hold following the key that struck the drum last, no older strike's gate end cutting a step's Hold, a gate end never lost from a full queue, Stop taking the sequence's queued hits, a block's first-frame events in the MPC build's order: settings, transport, notes, then the page's presses; a pre-roll's steps with their gate ends; a late wrap's step as told on time, Turing and Brownian moving once; a step dropping the audition's roll).
 
 `install-macos.sh` builds, ad-hoc signs, tests, and installs `Mystik.clap` to `/Library/Audio/Plug-Ins/CLAP/` (pass `--user` to install to `~/Library/Audio/Plug-Ins/CLAP/`). Quit and reopen FL Studio after reinstalling so macOS reloads the updated bundle.
 

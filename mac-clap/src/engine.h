@@ -18,6 +18,13 @@ namespace mystik
 // A clock less than this many frames away is due now (CLAP's 2^-31-beat song position would otherwise make a step on a
 // block's first frame come a frame late depending on the block size).
 constexpr double clockSlack = 1.0e-3;
+// A place moved by up to a 64th note (in quarters: hdslaveOS's own jump tolerance) is not a jump. hdslaveOS works the
+// place out from its ticks, so it is not quite a straight line from block to block (a swung tick, a tick on a block's
+// edge, MTC's trim: up to 0.0021 of a quarter), and a plug-in two tracks play is run twice a block (its second call
+// told a block on, the next block's first a block back).
+constexpr double jumpBeats = 1.0 / 16.0;
+// CLAP rounds the place to 2^-31 beats: a move told as exactly a 64th note can read a hair over it.
+constexpr double jumpSlack = 1.0e-9;
 
 // What a step plays.
 struct Decision
@@ -81,6 +88,7 @@ public:
         fx.reset();
         playing = fresh = false;
         lastStep = -1;
+        reached = -1.0e300;
         now = 0;
         clockedAt = -(int64_t (1) << 40);
         clockedLoud = false;
@@ -240,14 +248,22 @@ public:
             playing = false;
             return;
         }
+        // A Play, or a place other than where the last block ended by more than a block and a 64th note (a jump, a
+        // loop going round), or on by more than a block past two clocks (Swing 75 at 1/64; a locate on, a MIDI clock
+        // catching up): line up again. Less than that is drift (a tempo change inside the last block, the host's
+        // place off its line), followed as it is: the steps already played are not played again (a step back holds
+        // them until the song is past them again), one passed is played at once.
         const double moved = std::fabs (beats - position);
         if (! playing)
         {
             fresh = true; // a Play: the generative modes start from Seed
             relocate (beats, window, false);
         }
-        else if (moved > 0.5 * perFrame && moved >= window * perFrame)
+        else if (moved > 0.5 * perFrame && moved >= window * perFrame
+                 && (moved > jumpBeats + jumpSlack || (beats > position && clockAtOrBefore (beats) > lastStep + 1)))
             relocate (beats, window, true);
+        else if (beats < position)
+            reached = std::max (reached, position); // held: where the steps got to, for a Rate change meanwhile
         playing = true;
         position = beats;
     }
@@ -392,6 +408,7 @@ private:
         const int64_t b = clockAtOrBefore (beats);
         const double late = (beats - clockBeat (b)) / perFrame;
         position = beats;
+        reached = -1.0e300;
         regridWanted = false;
         // A loop gone round inside a block (the host tells only at the next): the step played on the frame its step b
         // began was b. Line up with b; play b only if the step played then was silent.
@@ -416,7 +433,7 @@ private:
 
     void regrid()
     {
-        lastStep = clockAtOrBefore (position - perFrame * (1.0 - clockSlack));
+        lastStep = clockAtOrBefore (std::max (position, reached) - perFrame * (1.0 - clockSlack)); // where the steps got to
         regridWanted = false;
     }
 
@@ -919,6 +936,7 @@ private:
     Voice voice;
     Effects fx;
     double rate = 48000.0, perFrame = 0.0, position = 0.0;
+    double reached = -1.0e300; // the furthest place the steps got to while the place stepped back (a hold); none
     float knob[ParamId::count] {};
     bool voiceDirty = true, fxDirty = true;
     bool playing = false, fresh = false, reseed = false, regridWanted = false, seedChanged = false;

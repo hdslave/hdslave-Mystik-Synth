@@ -40,7 +40,7 @@ strike ──► hand exciter (raised-cosine click + noise burst) ──► memb
   fingers left on), Bass (centre, soft, long, a deeper bend, its upper modes damped by the palm), Mute (damped modes
   and gate), Ghost (soft), Flam (a grace hit, the main one 22 ms after), Roll (four hits that speed up and fade),
   Press (the head pressed after the hit: the pitch rises, a tabla's bayan).
-- Pitch: Tune + the step + MIDI transposition + Glide (slides) + Bend (tension: the pitch starts higher and falls as
+- Pitch: Tune + the step (or the key, in Notes: Pitch) + a step pad's bank (12 semitones a bank) + Glide (slides) + Bend (tension: the pitch starts higher and falls as
   the swing does, its time the fundamental's T60 / 13.8 (amplitude squared); deeper for harder hits; negative rises,
   as an udu) + Drift (a smoothed random walk: the "woggle").
 - Wavefolder: `sin(g * x + b) - sin(b)`, g = 1 + 11 * clamp(Timbre + Bloom * light)^2, b = Symmetry * pi/2. It folds

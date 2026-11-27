@@ -10,6 +10,7 @@
 #include "params.h"
 #include "voice.h"
 
+#include <algorithm>
 #include <atomic>
 #include <limits>
 
@@ -103,7 +104,6 @@ public:
         owner = -1;
         liveHitsQueued = slideHeld = false;
         liveMark = noClock;
-        transpose = 0.0f;
         st = SeqState {};
         lightCounter = 0;
         voiceDirty = fxDirty = true;
@@ -149,11 +149,14 @@ public:
         return true;
     }
 
-    // Keys. With the sequencer on (the host playing or stopped), keys 36-51 are its steps 1-16: pads 1-16 on a
-    // plug-in track at hdslaveOS's defaults. Each plays its step once, as Notes: Steps plays it (its pitch with the
-    // scale and the transposition, its stroke and accent; a rest, or a step Chance or Density would drop, plays too),
-    // and moves neither the sequence nor the transposition. The other keys: with the sequencer on and the host
-    // playing, a key transposes the pattern (latched, from C3); otherwise keys play the drum as Notes says.
+    // Keys. The plug-in names its pads for hdslaveOS (padMapJson), so a plug-in track plays them as drums: pads
+    // A01-A16 send keys 36-51 whatever the track's octave, key or scale, and - / + move the bank (B 52-67, C 68-83,
+    // D 84-99). Where the keys are steps, a key is pad slot (key - 36) mod 16 of bank floor ((key - 36) / 16), the bank
+    // held to -2..+3, each bank an octave (padOf). With the sequencer on (the host playing or stopped), every key is a
+    // step pad: slot s plays step s + 1 once, as Notes: Steps plays it (its pitch with the scale, its stroke and
+    // accent; a rest, or a step Chance or Density would drop, plays too), 12 semitones up a bank, and moves the
+    // sequence not at all. With it off, keys play the drum as Notes says: Steps as the pads do, Pitch and Strokes each
+    // key as 0.3 played it (Pitch: the key from C3).
     void noteOn (int key, float velocity)
     {
         if (isPad (key))
@@ -164,15 +167,13 @@ public:
             forget (key);
             remember (key);
             if (padStep < 0 || velocity >= padVelocity)
-                padStep = key - firstPad, padVelocity = velocity;
+            {
+                const PadKey p = padOf (key);
+                padStep = p.slot, padShift = p.shift, padKey = key, padVelocity = velocity;
+            }
             return;
         }
         applyKnobs();
-        if (seqOn() && playing)
-        {
-            transpose = (float) (key - 60);
-            return;
-        }
         // The same key again without a note off between (a sequencer's repeated note): it starts again, not a slide.
         forget (key);
         const int mode = (int) knob[ParamId::notes];
@@ -188,8 +189,11 @@ public:
             h.semis = 12.0f * (float) octave;
             strikeWithStroke (h);
         }
-        else if (mode == 2) // Steps: 36-51 play steps 1-16
-            playStep (((key - 36) % steps + steps) % steps, velocity);
+        else if (mode == 2) // Steps: pads 1-16 play steps 1-16, a bank an octave up
+        {
+            const PadKey p = padOf (key);
+            playStep (p.slot, velocity, (float) p.shift);
+        }
         else // Pitch: the key from C3, overlapping keys slide (a held step pad is no key of this keyboard)
         {
             h.stroke = Stroke::open;
@@ -393,7 +397,17 @@ private:
     static constexpr int64_t padClock = noClock + 1;
     static constexpr int64_t auditionClock = noClock + 2;
     static bool isStep (int64_t k) { return k > auditionClock; }
-    bool isPad (int key) const { return seqOn() && key >= firstPad && key < firstPad + steps; }
+    // Every key is a pad with the sequencer on: its step.
+    bool isPad (int) const { return seqOn(); }
+    // A key as a step pad (Reverie's rule, its bank held to -2..+3 so banks A-D are 0 to +3 octaves): its slot 0-15
+    // and its bank's shift, 12 semitones a bank.
+    struct PadKey { int slot, shift; };
+    static PadKey padOf (int key)
+    {
+        const int from = key - firstPad;
+        const int bank = from >= 0 ? from / steps : -((-from + steps - 1) / steps);
+        return { from - bank * steps, 12 * std::clamp (bank, -2, 3) };
+    }
 
     void remember (int key) // the newest last; with every place taken, the oldest key held is forgotten for it
     {
@@ -432,14 +446,14 @@ private:
     }
 
     // Step s as a key plays it (Notes: Steps, a step pad): its pitch, stroke and trig's accent, an accent from
-    // velocity 100 too, never a slide, whatever the sequence would do with it now.
-    void playStep (int s, float velocity)
+    // velocity 100 too, never a slide, whatever the sequence would do with it now; `shift` semitones up (its bank).
+    void playStep (int s, float velocity, float shift)
     {
         Decision d = stepDecision (s);
         d.force *= velocity;
         d.accent = d.accent || velocity >= 100.0f / 127.0f - 1e-6f;
         d.slide = false;
-        playDecision (d, noClock);
+        playDecision (d, noClock, shift);
     }
     // The step pad struck on this frame, if any, played now (render calls it when the frame's audio starts).
     void playPad()
@@ -450,11 +464,11 @@ private:
         padStep = -1;
         applyKnobs();
         liveMark = padClock;
-        playStep (s, padVelocity);
+        playStep (s, padVelocity, (float) padShift);
         liveMark = noClock;
         // The pad plays the drum now, and its note off ends Hold. Let go on the frame it was struck (or every key let
         // go), its Hold ends now, as a key's would, whatever other key is held.
-        owner = firstPad + s;
+        owner = padKey;
         if (! isHeld (owner))
             owner = -1, voice.release();
     }
@@ -496,7 +510,7 @@ private:
                 // clock's own road (its Sequencer switch, a fresh start, a new Seed), so the state moves on once
                 // for the step, as if the wrap had been told on time. It plays now, before this frame's notes and the
                 // page's presses: the step really began on the wrap's frame, inside the block before, so they come
-                // after it, as they would told on time (a pad strikes over it, a key transposes the steps after).
+                // after it, as they would told on time (a pad strikes over it).
                 st = preClockState;
                 clock (b);
             }
@@ -770,7 +784,7 @@ private:
     }
 
     // A step's sound: its strike (or its slide), the flam's or roll's further hits, a bounce's ball, and the gate's end.
-    void playDecision (const Decision& d, int64_t k)
+    void playDecision (const Decision& d, int64_t k, float shift = 0.0f)
     {
         Hit h;
         h.force = d.force;
@@ -778,7 +792,7 @@ private:
         h.accent = d.accent;
         h.slide = d.slide;
         h.hold = knob[ParamId::hold] > 0.0f;
-        h.semis = transpose + degreeSemis (d.degree, scale());
+        h.semis = shift + degreeSemis (d.degree, scale());
         const double stepFrames = isStep (k) && perFrame > 0.0 ? (clockBeat (k + 1) - clockBeat (k)) / perFrame : rate * 0.125;
         if (mode() == SeqMode::bounce && isStep (k))
         {
@@ -840,7 +854,7 @@ private:
         {
             const Decision step = stepDecision (j % len);
             Hit h = first;
-            h.semis = transpose + degreeSemis (step.degree, scale());
+            h.semis = degreeSemis (step.degree, scale());
             h.stroke = step.stroke == Stroke::flam || step.stroke == Stroke::roll ? Stroke::open : step.stroke;
             h.force = std::pow ((float) r, 0.6f * (float) j);
             h.accent = j == 0 && knob[ParamId::accents] > 0.0f;
@@ -1028,14 +1042,15 @@ private:
     SeqState st;
     SeqState preClockState; // `st` as the last clock found it, for deciding that step again on a late wrap
     bool clockSnapshot = false;
-    float transpose = 0.0f;
     int heldKeys[16] {};
     int held = 0;
     int padStep = -1;       // the step pad struck on this frame, still to play (-1: none)
+    int padShift = 0;       // its bank's semitones
+    int padKey = -1;        // and its key
     float padVelocity = 0.0f;
     // The key or step pad that struck the drum last (a slide back to a held key counts), while it is held and nothing
     // has taken the drum from it since (a step that plays, the page's audition, a newer key or pad): its note off ends
-    // Hold, even when the sequence runs by then (a key then transposes; it took the drum before), and while it is held
+    // Hold, even when the sequence runs by then (it took the drum before), and while it is held
     // neither a Stop, the sequencer switched off nor a gate end ends it. -1: none.
     int owner = -1;
     // A step's gate end was held on for the next step's slide, which has not played yet: if that step does not play

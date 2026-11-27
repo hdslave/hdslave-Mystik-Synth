@@ -19,7 +19,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <random>
 #include <string>
@@ -1260,7 +1262,7 @@ void testNotes()
         });
         CHECK (peakOf (l, 6400 + 64, 48000) < 1e-3);
     }
-    // With the sequencer playing, a key transposes the pattern instead of playing.
+    // With the sequencer playing, a key plays its pad's step and transposes nothing (before 0.4 it transposed).
     {
         Instance a;
         auto v = clickPatch();
@@ -1274,7 +1276,7 @@ void testNotes()
             if (at == 128 * 375) e.note (0, CLAP_EVENT_NOTE_ON, 72, 1.0);
         });
         CHECK_NEAR (pitchOf (l, 20000, 47000, 48000.0), 130.81, 1.5);
-        CHECK_NEAR (pitchOf (l, 60000, 95000, 48000.0), 261.63, 3.0);
+        CHECK_NEAR (pitchOf (l, 60000, 95000, 48000.0), 130.81, 1.5);
     }
 }
 
@@ -1509,28 +1511,96 @@ void testPads()
         }
         CHECK (differ == 0);
     }
-    // Other keys still transpose while it plays (35 and 52, either side of the pads, too); a pad plays its step with
-    // the transposition and leaves it as it was.
+    // 0.4: every key is a pad (hdslaveOS's - / + move the bank: B 52-67, C 68-83, D 84-99). While it plays, a key of
+    // any bank plays its slot's step, an octave up a bank (35 is bank -1's pad 16), and transposes nothing: the steps
+    // after it play as they would have.
     {
         Instance a;
         a.setup (dronePatch (a));
         const auto out = perform (a, 24000 * 6, { padOn (30000, 64), padOff (31000, 64), padOn (54000, 35), padOff (55000, 35), padOn (78000, 52),
                                                   padOff (79000, 52), padOn (102000, 36), padOff (103000, 36) }, playingAll(), 128, false);
-        CHECK_PITCH (out, 50000, 71000, padDegree[2] + 4);
-        CHECK_PITCH (out, 74000, 95000, padDegree[3] - 25);
-        CHECK_PITCH (out, 98000, 101500, padDegree[4] - 8);
-        CHECK_PITCH (out, 104000, 119000, padDegree[0] - 8);
-        CHECK_PITCH (out, 122000, 143000, padDegree[5] - 8);
+        CHECK_PITCH (out, 32000, 47000, padDegree[12] + 12);
+        CHECK_PITCH (out, 50000, 53500, padDegree[2]);
+        CHECK_PITCH (out, 56000, 71000, padDegree[15] - 12);
+        CHECK_PITCH (out, 74000, 77500, padDegree[3]);
+        CHECK_PITCH (out, 80000, 95000, padDegree[0] + 12);
+        CHECK_PITCH (out, 98000, 101500, padDegree[4]);
+        CHECK_PITCH (out, 104000, 119000, padDegree[0]);
+        CHECK_PITCH (out, 122000, 143000, padDegree[5]);
     }
-    // Stopped, the other keys play the drum as Notes says (Pitch: from C3).
+    // Stopped too: 64 is bank B's pad 13, 53 bank B's pad 2, 35 bank -1's pad 16.
     {
         Instance a;
         a.setup (dronePatch (a));
         const auto out = perform (a, 36000, { padOn (100, 64), padOff (6000, 64), padOn (12000, 53), padOff (18000, 53), padOn (24000, 35), padOff (30000, 35) },
                                   stoppedAll(), 128, false);
-        CHECK_PITCH (out, 2000, 11500, 4);
-        CHECK_PITCH (out, 14000, 23500, -7);
-        CHECK_PITCH (out, 26000, 35500, -25);
+        CHECK_PITCH (out, 2000, 11500, padDegree[12] + 12);
+        CHECK_PITCH (out, 14000, 23500, padDegree[1] + 12);
+        CHECK_PITCH (out, 26000, 35500, padDegree[15] - 12);
+    }
+    // Banks B, C and D play pad 1's step 1 as bank A does, an octave up a bank (D, 84, three octaves up); the bank is
+    // held to -2..+3, so keys above D play as D and keys far below as bank -2. Pads 1-16 of every bank play steps 1-16,
+    // never another, never silence.
+    for (bool playing : { false, true })
+        for (auto [key, semis] : { std::pair { 36, 0 }, std::pair { 52, 12 }, std::pair { 68, 24 }, std::pair { 84, 36 }, std::pair { 99, 36 },
+                                   std::pair { 127, 36 }, std::pair { 20, -12 }, std::pair { 4, -24 }, std::pair { 0, -24 } })
+        {
+            Instance a;
+            a.setup (dronePatch (a));
+            const uint64_t at = playing ? 30000 : 100;
+            const auto out = perform (a, 48000, { padOn (at, key), padOff (at + 1000, key) }, playing ? playingAll() : stoppedAll(), 128, false);
+            const int slot = ((key - 36) % 16 + 16) % 16;
+            CHECK_PITCH (out, at + 2000, at + 17000, padDegree[slot] + semis);
+        }
+    for (int bank = -2; bank <= 4; ++bank)
+        for (int s = 0; s < 16; s += 5)
+        {
+            const int key = 36 + 16 * bank + s;
+            Instance a, b;
+            a.setup (dronePatch (a));
+            b.setup (dronePatch (b));
+            const auto up = perform (a, 12000, { padOn (100, key), padOff (6000, key) }, stoppedAll(), 128, false);
+            const auto home = perform (b, 12000, { padOn (100, 36 + s), padOff (6000, 36 + s) }, stoppedAll(), 128, false);
+            CHECK (peakOf (up) > 1e-3);
+            CHECK_PITCH (up, 2000, 11500, padDegree[s] + 12 * std::clamp (bank, -2, 3));
+            if (bank == 0)
+                CHECK (up == home);
+        }
+    // A pad of any bank, stopped, is Notes: Steps with the sequencer off (which reads the banks the same way), to the
+    // sample.
+    for (int key : { 52, 61, 67, 68, 83, 84, 99, 100, 35, 20 })
+    {
+        const std::vector<PadEvent> list { padOn (100, key, 0.8), padOff (6000, key) };
+        Instance a, b;
+        b.setup ({ { "Sequencer", 0.0 }, { "Notes", b.valueOf ("Notes", "Steps") } });
+        CHECK (perform (a, 12000, list, stoppedAll()) == perform (b, 12000, list, stoppedAll()));
+    }
+    // Sequencer off, Pitch: every key plays as it did before the drum map (0.3): its own pitch from C3, so bank B's
+    // pad 1 (52) plays 16 semitones over pad 1, not an octave; bank D's pad 1 (84) two octaves over C3.
+    {
+        Instance a;
+        auto v = dronePatch (a);
+        v.push_back ({ "Sequencer", 0.0 });
+        a.setup (v);
+        const int keys[] { 52, 59, 68, 84, 35, 64 };
+        std::vector<PadEvent> list;
+        for (int i = 0; i < 6; ++i)
+            list.push_back (padOn ((uint64_t) i * 12000 + 100, keys[i])), list.push_back (padOff ((uint64_t) i * 12000 + 6000, keys[i]));
+        const auto out = perform (a, 12000 * 6, list, stoppedAll(), 128, false);
+        for (int i = 0; i < 6; ++i)
+            CHECK_PITCH (out, i * 12000 + 2000, i * 12000 + 11500, keys[i] - 60);
+    }
+    // Sequencer off, Strokes: as before the drum map: 36-43 the eight strokes at Tune, each further 8 keys an octave
+    // up, so 52 (bank B's pad 1) is the first stroke two octaves up, not one.
+    for (auto [key, semis] : { std::pair { 36, 0 }, std::pair { 44, 12 }, std::pair { 52, 24 }, std::pair { 28, -12 } })
+    {
+        Instance a;
+        auto v = dronePatch (a);
+        v.push_back ({ "Sequencer", 0.0 });
+        v.push_back ({ "Notes", a.valueOf ("Notes", "Strokes") });
+        a.setup (v);
+        const auto out = perform (a, 12000, { padOn (100, key), padOff (6000, key) }, stoppedAll(), 128, false);
+        CHECK_PITCH (out, 2000, 11500, semis);
     }
     // Sequencer off: keys 36-51 are a chromatic keyboard again, stopped or playing; switched on, the pads are steps.
     for (bool playing : { false, true })
@@ -2203,7 +2273,7 @@ void testClockEdges()
         { "pad 5 struck, held to 90,112", { padOn (72064, 40), padOff (90112, 40) }, false, 74000, 89500, 0, 0, 74000, 84000 },
         { "pad 5 struck, let go at 80,000", { padOn (72064, 40), padOff (80000, 40) }, false, 74000, 79500, 87000, 92000, 74000, 79500 },
         { "the audition (step 1)", {}, true, 72600, 74800, 82000, 92000, 0, 0 },
-        { "key 65 (it transposes the steps after)", { padOn (72064, 65), padOff (73000, 65) }, false, 74000, 83500, 0, 0, 73000, 83000 },
+        { "key 56 (bank B's pad 5), held to 84,000", { padOn (72064, 56), padOff (84000, 56) }, false, 74000, 83500, 0, 0, 74000, 83000 },
     };
     const double bright = std::pow (10.0, -12.0 / 20.0);
     for (const auto& c : cases)
@@ -2420,8 +2490,8 @@ void testWrap()
 // settings sent with Play apply first, then the transport, then notes.
 void testFrameZero()
 {
-    // On Play's frame (sequencer on): a key outside the pads transposes the first step, it does not strike as a
-    // note of a stopped drum. Whatever Notes says (Pitch, Strokes or Steps).
+    // On Play's frame (sequencer on): a key of another bank (64, bank B's pad 13) is a step pad like the others, whatever
+    // Notes says: the step the sequence plays on that frame wins, and nothing is transposed (before 0.4 it was).
     for (const char* notes : { "Pitch", "Strokes", "Steps" })
     {
         Instance a;
@@ -2429,17 +2499,17 @@ void testFrameZero()
         v.push_back ({ "Notes", a.valueOf ("Notes", notes) });
         a.setup (v);
         const auto out = perform (a, 48000, { padOn (0, 64), padOff (3000, 64) }, playingAll(), 128, false);
-        CHECK_PITCH (out, 2000, 22000, padDegree[0] + 4);
-        CHECK_PITCH (out, 26000, 46000, padDegree[1] + 4);
+        CHECK_PITCH (out, 2000, 22000, padDegree[0]);
+        CHECK_PITCH (out, 26000, 46000, padDegree[1]);
     }
-    // On Stop's frame: the same key plays the drum (Pitch), it does not transpose a pattern that has stopped.
+    // On Stop's frame: the same key plays its step, an octave up, as it does stopped.
     {
         Instance a;
         a.setup (dronePatch (a));
         const uint64_t stop = 48000;
         const auto out = perform (a, 96000, { padOn (stop, 64), padOff (stop + 6000, 64) },
                                   [&] (uint64_t at) { return at < stop ? playingFrom (0.0, 120.0, 48000.0, at) : stopped(); }, 128, false);
-        CHECK_PITCH (out, stop + 2000, stop + 22000, 4);
+        CHECK_PITCH (out, stop + 2000, stop + 22000, padDegree[12] + 12);
     }
     // A step pad on Play's frame: the step the sequence plays on that frame wins, the pad's own step (9 here)
     // does not sound, and the sequence walks on as it would have.
@@ -2908,6 +2978,44 @@ void demos (const std::string& folder)
 }
 } // namespace
 
+// 0.4: the drum map hdslaveOS reads from the binary (Melodee's plugin_files.h finds `{"pad_layout"` in the .clap):
+// with it, a plug-in track plays its pads as Drums, pads A01-A16 keys 36-51 whatever the octave, and the Keys page
+// names them. Read as Melodee's drum_map.h does: one object, its "levels" each a name and a note.
+void testPadMap (const char* path)
+{
+    std::ifstream f (path, std::ios::binary);
+    const std::string bytes ((std::istreambuf_iterator<char> (f)), std::istreambuf_iterator<char>());
+    const size_t at = bytes.find ("{\"pad_layout\":\"drums\"");
+    CHECK (at != std::string::npos);
+    if (at == std::string::npos) return;
+    const std::string json = bytes.substr (at, bytes.find ('\0', at) - at);
+    // Any other copy (a sanitizer build keeps one more) is the same map: Melodee would read the same pads from it.
+    for (size_t more = bytes.find ("{\"pad_layout\"", at + 1); more != std::string::npos; more = bytes.find ("{\"pad_layout\"", more + 1))
+        CHECK (bytes.compare (more, json.size() + 1, json.c_str(), json.size() + 1) == 0);
+    int depth = 0;
+    size_t end = 0;
+    for (size_t i = 0; i < json.size() && end == 0; ++i)
+        depth += json[i] == '{' ? 1 : json[i] == '}' ? -1 : 0, end = depth == 0 ? i + 1 : 0;
+    CHECK (end == json.size()); // balanced, nothing after it
+    CHECK (json.find ("\"name\":\"hdslave Mystik\",\"levels\":{") != std::string::npos);
+    std::map<int, std::string> voices;
+    int entries = 0;
+    for (size_t k = json.find ("\"levels\""); (k = json.find ("{\"name\":\"", k)) != std::string::npos;)
+    {
+        k += 9;
+        const size_t q = json.find ('"', k);
+        const std::string name = json.substr (k, q - k);
+        CHECK (json.compare (q, 9, "\",\"note\":") == 0);
+        const int note = std::atoi (json.c_str() + q + 9);
+        voices[note] = name, ++entries;
+        k = q;
+    }
+    CHECK (entries == 16);
+    CHECK (voices.size() == 16);
+    for (int n = 36; n <= 51; ++n)
+        CHECK (voices.count (n) == 1 && voices[n] == "Step " + std::to_string (n - 35));
+}
+
 int main (int argc, char** argv)
 {
     if (argc < 3)
@@ -2937,6 +3045,7 @@ int main (int argc, char** argv)
             std::printf ("%-12s %s\n", name, failures == before ? "ok" : "FAILED");
         }
     };
+    run ("padmap", [&] { testPadMap (argv[1]); });
     run ("description", testDescription);
     run ("parameters", testParameters);
     run ("state", testState);

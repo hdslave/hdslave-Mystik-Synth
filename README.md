@@ -32,13 +32,14 @@ Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melo
 - **The sequencer** can be off; on, it plays 16 steps (pitch as a scale degree, trig, stroke, chance) as Pattern,
   Euclid, Turing, Automaton, Bounce or Rhythm (14 traditional timelines from tresillo to teental), with slides,
   303-style accents that build on each other, swing, density, rotation, mutation, twelve scales (Pelog and Slendro
-  microtonal), a seed and Regenerate. While it is on, pads 1-16 play its steps, so a pattern can be heard step by step.
+  microtonal), a seed and Regenerate. While it is on, pads 1-16 play its steps in every bank, so a pattern can be heard step by step.
 - **The effects**: Drive, Crush, a ping-pong Echo synced to the tempo with Absorb in its loop, Space (a spring-like
   tank of dispersive allpasses).
 - **Cost**: about 91,000 instructions a 128-frame block playing (1.9 % of one of the MPC's cores), 2,000 stopped;
   a page frame about 380,000 instructions in the PLAY benchmark, redrawing only what moved.
 
-Version 0.3.6. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
+Version 0.4.0. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing); the
+pads' drum map and banks (0.4) have not been tried on the device either.
 
 ## Install
 
@@ -60,18 +61,27 @@ Minus and Plus turn the pages; Shift shows what the controls do on the page in v
 | FX | the chain, the echo's taps | as SKIN | | |
 | MODE | the mode at work: the Euclid ring, the Turing register, the automaton's last 16 generations, the bounces, the timeline's strokes | as SKIN (rows a mode does not use are dimmed) | | |
 
-Pads and keys. **Sequencer on: pads 1-16 play steps 1-16**, whether the song plays or not (they are keys 36-51: pads
-A01-A16 on a plug-in track at hdslaveOS's default octave and key, pad 1 bottom left). A pad plays its step once, as
-the sequence plays it: its pitch in the scale, with the transposition, its stroke, its accent (a hit at velocity 100
-or more accents too). It plays a step that rests, or that Chance or Density would drop, too. It moves neither the
-sequence nor the transposition: the step the sequence plays next is the one it would have played anyway, and it takes
-the drum back. In Euclid, Turing, Automaton, Bounce and Rhythm a pad plays the step's own Pitch, Trig and Stroke (so
-not Turing's pitches, the accents Euclid and Automaton add, or a timeline's strokes). Two pads at once: the louder
-plays. A pad struck just as the sequence plays a step gives way to that step. While a pad is held, Hold keeps the
-gate lit, until the pad is let go or the sequence's next step takes over. The other keys: with the song playing, a
-key transposes the pattern (from C3, latched); stopped, keys play the drum as Notes says. A key that struck the drum
-(stopped, or with the Sequencer off) keeps Hold lit while it is held, through Play, Stop or the Sequencer switched
-off, until it is let go or a step of the sequence, SEQ's Shift + Push, or a newer key or pad takes the drum. Hold
+Pads and keys. Mystik names its pads for hdslaveOS (a drum map in the plug-in), so a plug-in track plays them as
+Drums: **pads A01-A16 are keys 36-51 whatever the track's octave, key or scale**, the Keys page names them Step 1 to
+Step 16, and Minus / Plus on Stage move the **bank** (B 52-67, C 68-83, D 84-99) instead of the octave. Where the
+pads are steps (the Sequencer on, or Notes: Steps), every bank plays the same 16 steps an octave higher than the bank
+below: a key is pad (key - 36) mod 16 of bank (key - 36) / 16 (rounded down), and the bank counts -2 to +3 (A to D are
+0 to 3 octaves up; keys under 36 are banks -1 and -2, keys over 99 play as D). So the step pads never shift to other
+steps, transpose by surprise or fall silent after a bank change. Where a key plays a pitch or a stroke (Notes: Pitch
+and Strokes, with the Sequencer off), it plays exactly what it played before 0.4.
+**Sequencer on: pads 1-16 play steps 1-16**, whether the song plays or not, in every bank, an octave up a bank (bank B's
+pad 1 is step 1 an octave up). A pad plays its step once, as the sequence plays it: its pitch in the scale, its
+stroke, its accent (a hit at velocity 100 or more accents too). It plays a step that rests, or that Chance or Density
+would drop, too. It does not move the sequence: the step the sequence plays next is the one it would have played
+anyway, and it takes the drum back. In Euclid, Turing, Automaton, Bounce and Rhythm a pad plays the step's own Pitch,
+Trig and Stroke (so not Turing's pitches, the accents Euclid and Automaton add, or a timeline's strokes). Two pads at
+once: the louder plays. A pad struck just as the sequence plays a step gives way to that step. While a pad is held,
+Hold keeps the gate lit, until the pad is let go or the sequence's next step takes over. (What 0.4 replaced: with the
+Sequencer on, keys outside 36-51 transposed the pattern while the song played, and played the drum as Notes says while
+it was stopped; every key is a step pad now, and nothing transposes the pattern. Notes: Steps played step
+(key - 36) mod 16 at the same pitch in every octave; it now plays a bank an octave up.) A key that struck the drum (with the Sequencer off) keeps
+Hold lit while it is held, through Play, Stop or the Sequencer switched off, until it is let go or a step of the
+sequence, SEQ's Shift + Push, or a newer key or pad takes the drum. Hold
 follows the key or pad that struck the drum last: an older one still held, let go before or after, ends nothing (in
 Pitch the newer of two keys let go glides back to the older, which then plays the drum). Shift + Push's step keeps
 its gate for Gate's share of an eighth of a second, whether a key is held or not, and through a Stop, unless a step
@@ -83,9 +93,11 @@ loop shorter than Bounce's cycle (each time round drops a new ball), a step's wh
 one a Rate change or a tempo change left running. A gate end always comes: when the queue of hits still to come is
 full (a burst of rolls, or such a loop in Bounce), a hit gives way to it.
 **Sequencer off: the pads play
-notes**, as Notes says: **Pitch** (the key sets the pitch from C3; velocity 100 or more accents; overlapping keys slide
-and hold), **Strokes** (keys 36-43 play the eight strokes at Tune, each 8 keys up an octave: two drums, high and low,
-like a pair of bongos), **Steps** (keys 36-51 play steps 1-16). Pitch bend is +-2 semitones, the mod wheel folds.
+notes**, as Notes says: **Pitch** (the key sets the pitch from C3, so bank B's pad 1, key 52, is 16 semitones over
+pad 1; velocity 100 or more accents; overlapping keys slide and hold), **Strokes** (keys 36-43 play the eight strokes
+at Tune, each 8 keys up an octave: two drums, high and low, like a pair of bongos), **Steps** (pads 1-16 play steps
+1-16, an octave up a bank, as the step pads do with the Sequencer on).
+Pitch bend is +-2 semitones, the mod wheel folds.
 Melodee's All Sound Off (CC 120 at 0) silences the drum and the tails, All Notes Off (CC 123 at 0) lets held notes go,
 Reset All Controllers (CC 121) puts the bend and the mod wheel back at rest, a choke stops the drum.
 
@@ -159,7 +171,7 @@ tank's level), Space Decay, Volume.
 | Curve | Bounce: each bounce this much shorter (x0.50-0.92) |
 | Seed | all the randomness (a hash of the step's place, the seed and a salt) |
 | Regenerate | a new Seed (told to the host) |
-| Notes | Pitch, Strokes, Steps: what the keys play when they neither transpose nor play steps; with the sequencer off, the pads too (see Playing it) |
+| Notes | Pitch, Strokes, Steps: what the pads and keys play with the sequencer off (see Playing it) |
 
 Per step: **Pitch** (a degree of Scale, -21 to 21), **Trig** (Rest, Hit, Accent, Slide, Acc+Slide: a slide glides
 into the step without a new strike), **Stroke** (Open, Slap, Bass, Mute, Ghost, Flam, Roll, Press), **Chance**.
@@ -225,7 +237,7 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
     tools/bench.sh           # instructions a block (callgrind): worst, acid, typical, stopped, a page frame
     ./build.sh fingerprint-update   # only after a change meant to change the sound
 
-- `tests/host.cpp` (821,050 checks): the description, every parameter's text both ways (a step's Pitch by its note's
+- `tests/host.cpp` (1,001,395 checks): the drum map in the binary (16 pads, keys 36-51, named Step 1-16), the description, every parameter's text both ways (a step's Pitch by its note's
   name too), state (a 0.1 state keeping Human at 0, a newer version refused), presets, the gate held
   to the 292's response at seven settings, the vactrol's timing, steps to the sample (swing too), every sequencer mode,
   stop and Play again, a loop the host tells a block late sounding as one told on time in Turing, Brownian and
@@ -251,12 +263,18 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
   on the frame a late wrap is told, lit and pitched as told on time; a call of no frames telling the wrap, then Stop;
   a Roll audition on a step's frame, its later hits dropped), the step
   pads (each pad against Notes: Steps and against the sequence playing that step, their pitches stopped and playing,
-  the sequence and the transposition left as they were, Turing's register too, the other keys still transposing, the
-  sequencer off, two pads on a frame, on/on/off, a pad on Play's frame, Hold while the sequence plays, a pad's roll
+  the sequence left as it was, Turing's register too, every bank's pads playing bank A's steps an octave up a bank
+  and transposing nothing, D three octaves up and keys past it held there, Notes: Steps alike, Pitch's and Strokes'
+  keys with the sequencer off as before 0.4, two pads on a frame, on/on/off, a pad on Play's frame, Hold while the sequence plays, a pad's roll
   giving way to the next step, CC 120/123 storms and chokes, block sizes), Regenerate, the echo's loop shedding DC,
   extreme settings at 44.1, 48 and 96 kHz, and the page (its pictures in `build/`).
-- `tests/fingerprint.cpp`: a hash of every output sample over 47 scenarios (each preset, each mode, keys, MIDI, rates,
-  the transport, random settings, the step pads stopped and playing, block sizes). 0.3.6 moved six. `pads-stopped` and
+- `tests/fingerprint.cpp`: a hash of every output sample over 52 scenarios (each preset, each mode, keys, MIDI, rates,
+  the transport, random settings, the step pads stopped and playing, the banks, block sizes). 0.4.0 moved 9 and added
+  five (`banks-stopped`, `banks-playing`, `banks-pitch`, `banks-strokes`, `banks-steps`). The 9 are exactly the
+  scenarios that play step pads or Notes: Steps with keys outside 36-51: `pads-stopped`, `pads-playing`, `blocks-*`
+  (the Sequencer on: those keys transposed or played the drum before), `random-1`, `-3`, `-5` (Notes: Steps) and
+  `random-6` (the Sequencer on). Every other scenario hashes as on 0.3.6, `banks-pitch` and `banks-strokes` too (run
+  on the 0.3.6 build); with the keys outside 36-51 left out, the two builds hash the same in all 52. 0.3.6 moved six. `pads-stopped` and
   `pads-playing`: a pad let go there while an older pad or key is held (pad 4 at 1.96 s with pad 6 held, pad 9 at
   2.23 s with pad 6 held, a MIDI pad struck and let go on one frame with pad 14 held, pad 2 with key 35 held) now ends
   Hold there; what follows rings on from that and differs by at most 0.048. `blocks-128`, `-1`, `-37` and `-4096`, one

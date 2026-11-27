@@ -345,7 +345,7 @@ std::vector<Scenario> scenarios()
         list.push_back (s);
     }
     // 0.3: with the sequencer on, keys 36-51 play steps 1-16 (the pads), stopped and while it plays: two on a frame, on,
-    // on, off, MIDI, flams and rolls, keys around them (playing: they transpose), a pad on a step's frame.
+    // on, off, MIDI, flams and rolls, keys around them (until 0.4, playing, they transposed), a pad on a step's frame.
     for (bool playing : { false, true })
     {
         Scenario s;
@@ -365,6 +365,29 @@ std::vector<Scenario> scenarios()
         s.events.push_back (noteAt (192000, 52, 0.7)), s.events.push_back (noteOffAt (198000, 52));
         s.events.push_back (noteAt (216000, 36, 1.0)), s.events.push_back (noteOffAt (222000, 36));
         if (! playing)
+            s.transport = [] (uint64_t, double, double) { return std::make_pair (false, 0.0); };
+        list.push_back (s);
+    }
+    // 0.4: keys of every bank (hdslaveOS's - / +: B 52-67, C 68-83, D 84-99): with the sequencer on, stopped and
+    // playing, and in Notes: Steps, a step pad an octave up a bank; in Pitch and Strokes each key as 0.3 played it.
+    for (const char* name : { "banks-stopped", "banks-playing", "banks-pitch", "banks-strokes", "banks-steps" })
+    {
+        Scenario s;
+        s.name = name;
+        const std::string n = name;
+        if (n == "banks-pitch")
+            s.values = { { "Sequencer", 0 }, { "Hold", 0.6 }, { "Glide", 0.4 } };
+        else if (n == "banks-strokes")
+            s.values = { { "Sequencer", 0 }, { "Notes", 1.0 } };
+        else if (n == "banks-steps")
+            s.values = { { "Sequencer", 0 }, { "Notes", 2.0 } };
+        for (int i = 0; i < 20; ++i)
+        {
+            const int key = 4 + (i * 23) % 96;
+            s.events.push_back (noteAt ((uint64_t) i * 12001 + 300, key, 0.4 + 0.6 * (i % 3) / 2.0));
+            s.events.push_back (noteOffAt ((uint64_t) i * 12001 + 300 + (i % 4 == 0 ? 14000 : 5000), key));
+        }
+        if (n != "banks-playing")
             s.transport = [] (uint64_t, double, double) { return std::make_pair (false, 0.0); };
         list.push_back (s);
     }

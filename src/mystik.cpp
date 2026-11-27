@@ -31,6 +31,25 @@ const clap_plugin_descriptor descriptor {
     features,
 };
 
+// The pads as Melodee reads them from a plug-in's library: with this, a plug-in track on Mystik plays its pads as
+// notes 36-51 (pads A01-A16) whatever the key or octave, - / + move the bank (an octave a step pad's bank, padOf), and
+// the Keys page names them. Kept in the binary by padsJson() below.
+[[gnu::used]] const char padMapJson[] =
+    "{\"pad_layout\":\"drums\",\"name\":\"hdslave Mystik\",\"levels\":{"
+    "\"s1\":{\"name\":\"Step 1\",\"note\":36},\"s2\":{\"name\":\"Step 2\",\"note\":37},"
+    "\"s3\":{\"name\":\"Step 3\",\"note\":38},\"s4\":{\"name\":\"Step 4\",\"note\":39},"
+    "\"s5\":{\"name\":\"Step 5\",\"note\":40},\"s6\":{\"name\":\"Step 6\",\"note\":41},"
+    "\"s7\":{\"name\":\"Step 7\",\"note\":42},\"s8\":{\"name\":\"Step 8\",\"note\":43},"
+    "\"s9\":{\"name\":\"Step 9\",\"note\":44},\"s10\":{\"name\":\"Step 10\",\"note\":45},"
+    "\"s11\":{\"name\":\"Step 11\",\"note\":46},\"s12\":{\"name\":\"Step 12\",\"note\":47},"
+    "\"s13\":{\"name\":\"Step 13\",\"note\":48},\"s14\":{\"name\":\"Step 14\",\"note\":49},"
+    "\"s15\":{\"name\":\"Step 15\",\"note\":50},\"s16\":{\"name\":\"Step 16\",\"note\":51}}}";
+const char* padsJson()
+{
+    const char* volatile json = padMapJson;
+    return json;
+}
+
 // A bit a parameter row, set from any thread, taken (and cleared) by the audio thread.
 struct RowBits
 {
@@ -482,6 +501,7 @@ bool pluginInit (const clap_plugin* plugin)
         p.applied[i] = paramTable[i].def;
         p.engine.set (paramTable[i].id, paramTable[i].def);
     }
+    (void) padsJson();
     p.hostParams = static_cast<const clap_host_params*> (p.host->get_extension (p.host, CLAP_EXT_PARAMS));
     p.hostScreen = static_cast<const melodee_screen_host_t*> (p.host->get_extension (p.host, MELODEE_SCREEN_CLAP_HOST));
     if (p.hostScreen == nullptr) // no page will ever read the engine's report of itself: don't keep it

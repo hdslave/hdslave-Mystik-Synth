@@ -1579,6 +1579,127 @@ void testHoldAcrossPlay()
     }
 }
 
+// Renders the events at their frames, with SEQ's Shift + Push (step 1) before the block `when` falls in; left only.
+std::vector<float> auditioned (Instance& a, uint32_t frames, uint64_t when, const std::vector<PadEvent>& list,
+                               const std::function<Transport (uint64_t)>& transport)
+{
+    const auto* screen = static_cast<const melodee_screen_t*> (a.plugin->get_extension (a.plugin, MELODEE_SCREEN_CLAP));
+    CHECK (screen != nullptr);
+    std::vector<float> l, r;
+    a.render (frames, 128, l, r, transport, [&] (uint64_t at, uint32_t n, Events& e) {
+        if (screen != nullptr && when >= at && when < at + n)
+        {
+            melodee_screen_input_t next { MELODEE_SCREEN_STEP, 1, 0 }, play { MELODEE_SCREEN_PUSH, 0, 1 };
+            CHECK (screen->input (a.plugin, &next) && screen->input (a.plugin, &play));
+        }
+        for (const auto& v : list)
+            if (v.frame >= at && v.frame < at + n)
+            {
+                const uint32_t t = (uint32_t) (v.frame - at);
+                if (v.kind == PadEvent::param)
+                    e.param (t, a.id (v.name), v.value);
+                else
+                    e.note (t, v.kind == PadEvent::on ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF, (int16_t) v.key, v.value);
+            }
+    });
+    return l;
+}
+constexpr uint64_t noAudition = ~uint64_t (0);
+
+// Hold follows the key or step pad that struck the drum last: its note off ends Hold, whatever older key is still held
+// (one the drum was taken from by that pad or key, a step or the page's audition). To 0.3.5 the older key kept Hold lit
+// until it was let go too (Pitch: 0.33 at 12,000-36,000 in the first case, where 72 let go first leaves 0.008).
+void testHoldLast()
+{
+    auto patch = [] (Instance& a, double sequencer, const char* notes) {
+        a.setup ({ { "Echo", 0.0 }, { "Space", 0.0 }, { "Hold", 0.6 }, { "Decay", 0.0 }, { "Ring", 0.0 }, { "Density", 0.5 },
+                   { "Sequencer", sequencer }, { "Notes", a.valueOf ("Notes", notes) } });
+        for (int s = 1; s <= 16; ++s) a.setup ({ { "Trig " + std::to_string (s), 0.0 } });
+    };
+    const auto playFrom = [] (uint64_t start) {
+        return [=] (uint64_t at) { return at < start ? stopped() : playingFrom (0.0, 120.0, 48000.0, at - start); };
+    };
+    struct Case
+    {
+        const char* what;
+        double sequencer;
+        const char* notes;
+        uint64_t audition;
+        std::vector<PadEvent> out, ref; // the older key let go last, and let go before (or as) the drum is taken
+        std::function<Transport (uint64_t)> transport;
+        std::vector<std::pair<std::string, double>> extra {};
+    };
+    const Case cases[] = {
+        { "a key, the audition, pad 5 let go", 1.0, "Pitch", 2048,
+          { padOn (1000, 72), padOn (8000, 40), padOff (9000, 40), padOff (40000, 72) },
+          { padOn (1000, 72), padOff (7000, 72), padOn (8000, 40), padOff (9000, 40) }, stoppedAll() },
+        { "the same, Notes: Strokes", 1.0, "Strokes", 2048,
+          { padOn (1000, 72), padOn (8000, 40), padOff (9000, 40), padOff (40000, 72) },
+          { padOn (1000, 72), padOff (7000, 72), padOn (8000, 40), padOff (9000, 40) }, stoppedAll() },
+        { "a key, pad 5 let go", 1.0, "Pitch", noAudition,
+          { padOn (1000, 72), padOn (8000, 40), padOff (9000, 40), padOff (40000, 72) },
+          { padOn (1000, 72), padOff (8000, 72), padOn (8000, 40), padOff (9000, 40) }, stoppedAll() },
+        { "pad 1, pad 2 let go", 1.0, "Pitch", noAudition,
+          { padOn (1000, 36), padOn (8000, 37), padOff (9000, 37), padOff (40000, 36) },
+          { padOn (1000, 36), padOff (8000, 36), padOn (8000, 37), padOff (9000, 37) }, stoppedAll() },
+        { "two keys (Strokes), the newer let go", 0.0, "Strokes", noAudition,
+          { padOn (1000, 72), padOn (8000, 68), padOff (9000, 68), padOff (40000, 72) },
+          { padOn (1000, 72), padOff (8000, 72), padOn (8000, 68), padOff (9000, 68) }, stoppedAll() },
+        // A key struck stopped, Play at 12,032, where step 1 takes the drum; pad 5 struck and let go while it plays.
+        { "a key, Play, a step, pad 5 let go", 1.0, "Pitch", noAudition,
+          { padOn (1000, 72), padOn (30000, 40), padOff (31000, 40), padOff (100000, 72) },
+          { padOn (1000, 72), padOff (29000, 72), padOn (30000, 40), padOff (31000, 40) }, playFrom (12032), { { "Trig 1", 1.0 } } },
+    };
+    for (const auto& c : cases)
+    {
+        Instance a, b;
+        patch (a, c.sequencer, c.notes), patch (b, c.sequencer, c.notes);
+        if (! c.extra.empty()) a.setup (c.extra), b.setup (c.extra);
+        const auto out = auditioned (a, 48000 * 3, c.audition, c.out, c.transport);
+        const auto ref = auditioned (b, 48000 * 3, c.audition, c.ref, c.transport);
+        const size_t letGo = (size_t) c.ref.back().frame;
+        CHECK (peakOf (ref, letGo - 1000, letGo) > 1e-3);                // lit while the last struck is held,
+        CHECK (peakOf (ref, letGo + 60000, letGo + 76000) < 1e-5);       // and it ends with it
+        if (out != ref)
+            std::printf ("  %s, an older key held: %.6f 3,000-27,000 frames after it is let go, not %.6f\n", c.what,
+                         peakOf (out, letGo + 3000, letGo + 27000), peakOf (ref, letGo + 3000, letGo + 27000));
+        CHECK (out == ref);
+    }
+    // Pitch's legato stays: the newer of two keys let go glides back to the older, which plays the drum, and Hold
+    // stays lit until that one is let go.
+    {
+        Instance a;
+        patch (a, 0.0, "Pitch");
+        const auto out = auditioned (a, 48000 * 3, noAudition, { padOn (1000, 60), padOn (8000, 64), padOff (9000, 64), padOff (40000, 60) },
+                                     stoppedAll());
+        CHECK (peakOf (out, 36000, 40000) > 1e-3);
+        CHECK (peakOf (out, 48000 * 2) < 1e-5);
+    }
+}
+
+// A gate end is never lost from a full queue (it holds 48 hits and gate ends): a hit gives way to it. Notes: Strokes,
+// the Sequencer off, 11 rolls (keys 42, 50 ... 122) twice in one frame: 66 hits to come in 106 ms; then SEQ's Shift
+// + Push. To 0.3.5 the audition's gate end found the queue full of the rolls' hits and was dropped: Hold stayed lit
+// for good. A loop shorter than Bounce's cycle fills it as the song plays (each time round drops a new ball while the
+// old ones still bounce: Rate 1/2 and a one-bar loop overlap eight balls of 16 hits).
+void testFullQueue()
+{
+    Instance a;
+    a.setup ({ { "Echo", 0.0 }, { "Space", 0.0 }, { "Hold", 0.6 }, { "Decay", 0.0 }, { "Ring", 0.0 }, { "Sequencer", 0.0 } });
+    a.setup ({ { "Notes", a.valueOf ("Notes", "Strokes") } });
+    std::vector<PadEvent> list;
+    for (int round = 0; round < 2; ++round)
+        for (int key = 42; key < 128; key += 8)
+            list.push_back (padOn (1000, key, 0.5));
+    for (int key = 42; key < 128; key += 8)
+        list.push_back (padOff (1100, key));
+    const auto out = auditioned (a, 48000 * 3, 2048, list, stoppedAll());
+    CHECK (peakOf (out, 2048, 4800) > 1e-3);
+    if (peakOf (out, 48000 * 2) >= 1e-5)
+        std::printf ("  a burst of rolls fills the queue, then the audition: Hold stays lit, %.6f two seconds on\n", peakOf (out, 48000 * 2));
+    CHECK (peakOf (out, 48000 * 2) < 1e-5);
+}
+
 void testRegenerate()
 {
     Instance a;
@@ -2230,6 +2351,8 @@ int main (int argc, char** argv)
     run ("hold", testHold);
     run ("pads", testPads);
     run ("holdplay", testHoldAcrossPlay);
+    run ("holdlast", testHoldLast);
+    run ("fullqueue", testFullQueue);
     run ("regenerate", testRegenerate);
     run ("echo-dc", testEchoDc);
     run ("wrap", testWrap);

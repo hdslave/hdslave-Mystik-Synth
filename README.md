@@ -38,7 +38,7 @@ Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melo
 - **Cost**: about 91,000 instructions a 128-frame block playing (1.9 % of one of the MPC's cores), 2,000 stopped;
   a page frame about 380,000 instructions in the PLAY benchmark, redrawing only what moved.
 
-Version 0.3.5. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
+Version 0.3.6. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing).
 
 ## Install
 
@@ -71,12 +71,14 @@ plays. A pad struck just as the sequence plays a step gives way to that step. Wh
 lit, until the pad is let go or the sequence's next step takes over. The other keys: with the song playing, a key
 transposes the pattern (from C3, latched); stopped, keys play the drum as Notes says. A key that struck the drum
 (stopped, or with the Sequencer off) keeps Hold lit while it is held, through Play, Stop or the Sequencer switched
-off, until it is let go or a step of the sequence, or of SEQ's Shift + Push, takes the drum. Shift + Push's step
+off, until it is let go or a step of the sequence, SEQ's Shift + Push, or a newer key or pad takes the drum. Hold
+follows the key or pad that struck the drum last: an older one still held, let go before or after, ends nothing (in
+Pitch the newer of two keys let go glides back to the older, which then plays the drum). Shift + Push's step
 keeps its gate for Gate's share of an eighth of a second, whether a key is held or not, and through a Stop, unless a
 step of the sequence takes the drum first (an older step's gate end no longer ends it). A key let go meanwhile does
 not slide back to another one held; nor does one let go once a step has taken the drum, nor onto a drum gone quiet (it
-would strike it anew). Known: a step pad let go while an older key the drum was taken from is still held leaves Hold
-lit until that key is let go.
+would strike it anew). A gate end always comes: when the queue of hits still to come is full (a burst of rolls, or a
+loop shorter than Bounce's cycle, which drops a new ball each time round), a hit gives way to it.
 **Sequencer off: the pads play
 notes**, as Notes says: **Pitch** (the key sets the pitch from C3; velocity 100 or more accents; overlapping keys slide
 and hold), **Strokes** (keys 36-43 play the eight strokes at Tune, each 8 keys up an octave: two drums, high and low,
@@ -209,7 +211,7 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
     tools/bench.sh           # instructions a block (callgrind): worst, acid, typical, stopped, a page frame
     ./build.sh fingerprint-update   # only after a change meant to change the sound
 
-- `tests/host.cpp` (751,580 checks): the description, every parameter's text both ways (a step's Pitch by its note's
+- `tests/host.cpp` (767,652 checks): the description, every parameter's text both ways (a step's Pitch by its note's
   name too), state (a 0.1 state keeping Human at 0, a newer version refused), presets, the gate held
   to the 292's response at seven settings, the vactrol's timing, steps to the sample (swing too), every sequencer mode,
   stop and Play again, a loop the host tells a block late sounding as one told on time in Turing, Brownian and
@@ -224,16 +226,21 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
   leaving a held key's Hold; SEQ's Shift + Push taking the drum from a key, let go during its gate or held on past it, Play
   or not, two keys held and the newer let go sliding nowhere, and giving it to a key struck after; while the sequence
   plays, step 1's gate end and a Stop leaving it; two keys held through Play, the newer let go after Stop; a gate end
-  held for a slide whose step Density then stops; a key let go onto a sleeping drum striking nothing), the step
+  held for a slide whose step Density then stops; a key let go onto a sleeping drum striking nothing; Hold following
+  the key or pad that struck last, an older key held: through an audition and a step pad, in Strokes, two pads, a step
+  taking the drum while playing; Pitch's glide back to the older key; a full queue of rolls not losing an audition's
+  gate end), the step
   pads (each pad against Notes: Steps and against the sequence playing that step, their pitches stopped and playing,
   the sequence and the transposition left as they were, Turing's register too, the other keys still transposing, the
   sequencer off, two pads on a frame, on/on/off, a pad on Play's frame, Hold while the sequence plays, a pad's roll
   giving way to the next step, CC 120/123 storms and chokes, block sizes), Regenerate, the echo's loop shedding DC,
   extreme settings at 44.1, 48 and 96 kHz, and the page (its pictures in `build/`).
 - `tests/fingerprint.cpp`: a hash of every output sample over 47 scenarios (each preset, each mode, keys, MIDI, rates,
-  the transport, random settings, the step pads stopped and playing, block sizes). 0.3.5 moved one, `knobs-moving`:
-  a Rate change there stops the step a gate end was held for, and that gate now ends at the step's clock (to 0.3.4
-  Hold stayed lit from 1.04 s to the scenario's end).
+  the transport, random settings, the step pads stopped and playing, block sizes). 0.3.6 moved two, `pads-stopped` and
+  `pads-playing`: a pad let go there while an older pad or key is held (pad 4 at 1.96 s with pad 6 held, a MIDI pad
+  struck and let go on one frame with pad 14 held, pad 2 with key 35 held) now ends Hold there; what follows rings on
+  from that and differs by at most 0.048. 0.3.5 moved one, `knobs-moving`: a Rate change there stops the step a gate
+  end was held for, and that gate now ends at the step's clock.
 - In Melodee's own host: `clap_check` (loads and plays it as Melodee does) and `melodee --melodee-plugin-screen` (its
   pages in Melodee's screen, the K1-K3 bindings), with the hdslaveOS checkout mounted read-only.
 

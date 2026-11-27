@@ -555,15 +555,26 @@ clap_process_status pluginProcess (const clap_plugin* plugin, const clap_process
         }
     tellHost (p, process->out_events, 0);
 
-    // Events at the block's first frame come first, then the page's presses, then the transport: a setting sent with
-    // Play is in place for what Play does.
+    // Events at the block's first frame, in their order of meaning: settings first (a setting sent with Play is in
+    // place for what Play does), then the transport, then notes and the page's presses (what a note does depends
+    // on whether the song is playing under it), as the MPC build does.
     const auto* in = process->in_events;
     const uint32_t count = in != nullptr ? in->size (in) : 0;
-    uint32_t next = 0;
     const uint32_t lastFrame = frames > 0 ? frames - 1 : 0;
-    for (; next < count && in->get (in, next)->time == 0; ++next)
-        handle (p, in->get (in, next), process->out_events, lastFrame);
-    takePresses (p);
+    auto setting = [] (const clap_event_header* e) {
+        if (e->space_id != CLAP_CORE_EVENT_SPACE_ID || e->type == CLAP_EVENT_PARAM_VALUE)
+            return true;
+        if (e->type != CLAP_EVENT_MIDI)
+            return false;
+        const uint8_t status = reinterpret_cast<const clap_event_midi*> (e)->data[0] & 0xf0;
+        return status != 0x80 && status != 0x90; // the wheel and CCs set; MIDI notes play
+    };
+    uint32_t at0 = 0;
+    while (at0 < count && in->get (in, at0)->time == 0)
+        ++at0;
+    for (uint32_t i = 0; i < at0; ++i)
+        if (setting (in->get (in, i)))
+            handle (p, in->get (in, i), process->out_events, lastFrame);
 
     if (const auto* t = process->transport)
     {
@@ -577,6 +588,12 @@ clap_process_status pluginProcess (const clap_plugin* plugin, const clap_process
     }
     else
         p.engine.transport (false, 0.0, 120.0, frames);
+
+    for (uint32_t i = 0; i < at0; ++i)
+        if (! setting (in->get (in, i)))
+            handle (p, in->get (in, i), process->out_events, lastFrame);
+    takePresses (p);
+    uint32_t next = at0;
 
     uint32_t done = 0;
     while (done < frames)

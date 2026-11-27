@@ -105,3 +105,10 @@ target_include_directories(host_test PRIVATE "${CLAP_INCLUDE_DIR}")
 if(APPLE)
     target_link_libraries(host_test PRIVATE dl)
 endif()
+
+# Hold, a full queue and the order of a block's first-frame events, in the inner plug-in as the bundle runs it
+# (build-macos.sh runs it; not built on Windows, where it has not been tried)
+if(NOT WIN32)
+    add_executable(hold_test "${CMAKE_SOURCE_DIR}/tests/hold_test.cpp" $<TARGET_OBJECTS:${SLUG}_inner>)
+    target_include_directories(hold_test PRIVATE "${CLAP_INCLUDE_DIR}" "${DESKTOP_DIR}")
+endif()

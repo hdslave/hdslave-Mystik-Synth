@@ -2,7 +2,8 @@
 // host plays it, with keys, the page's Shift + Push on SEQ (the audition) and the transport at block boundaries. It
 // holds the Hold rules the MPC build's tests/host.cpp holds for the same code: Hold follows the key that struck the
 // drum last, a step's Hold is not cut by an older strike's gate end, a gate end is never lost, Stop takes the
-// sequence's queued hits, and a block's first-frame notes and presses come after its transport.
+// sequence's queued hits, a block's first-frame notes and presses come after its transport, a pre-roll's steps have
+// their gate ends, and a late wrap's step plays after the frame's presses.
 //   hold_test
 #include "melodee_screen.h"
 
@@ -322,7 +323,7 @@ std::function<Transport (uint64_t)> looping (double beats) // 120 BPM, a loop of
 // it stays near the hit's, unlit it falls to silence. To 0.2.5's first build (and 0.2.4) an older strike's end cut the
 // newer one's Hold: Bounce at 1/2 in a one-bar loop (from bar 8 an older ball's end lands 0.6 into every bar), a 3-beat
 // loop at 1/2 whose step 2's gate runs past the wrap (Gate 50 %; with Gate 100 % and the wrap told late, step 1's end
-// lands in step 2), and Rate made faster inside a step's gate.
+// lands in step 2), and a Rate change inside a step's gate (here to a faster one).
 void testGateEnds()
 {
     auto tone = [] (Instance& a, const std::vector<std::pair<std::string, double>>& more) {
@@ -356,11 +357,13 @@ void testGateEnds()
             tone (a, { { "Rate", a.valueOf ("Rate", "1/2") }, { "Gate", gate } });
             everyStep (a);
             const auto out = a.run (72000 * 8, {}, looping (3.0), block);
-            double first = 1.0, second = 1.0; // each pass's step 1 at 0.2-1.0 beat, step 2 at 2.3-3.0
+            // Each pass's step 1 from 0.2 beat to 0.06 before its gate ends (Gate of its 2.16 beats), step 2 at 2.3-3.0.
+            const size_t firstEnd = (size_t) std::lround (gate * 51840.0) - 1440;
+            double first = 1.0, second = 1.0;
             for (int pass = 0; pass < 8; ++pass)
             {
                 const size_t at = (size_t) pass * 72000;
-                first = std::min (first, floorOf (out, at + 4800, at + 24000));
+                first = std::min (first, floorOf (out, at + 4800, at + firstEnd));
                 second = std::min (second, floorOf (out, at + 55200, at + 72000));
             }
             if (first <= lit || second <= lit)
@@ -378,7 +381,46 @@ void testGateEnds()
         const auto out = a.run (48000, { { 12000, Event::param, 0, a.valueOf ("Rate", "1/4"), "Rate" } }, looping (1000.0));
         const double low = floorOf (out, 38400, 42000); // 1.6-1.75 beats
         if (low <= lit)
-            std::printf ("  Rate made faster in a step's gate: the next step falls to %.1f dB\n", dbOf (low));
+            std::printf ("  a Rate change in a step's gate: the next step falls to %.1f dB\n", dbOf (low));
+        CHECK (low > lit);
+    }
+}
+
+// Two edges of the clock, the same sine through the gate: a host's pre-roll (the song from beat -2) plays its steps
+// before the top with their gate ends (to 0.2.5's second build a clock below 0 was taken for a key's strike: step 16
+// at beat -1 lit Hold for good); and a loop's wrap told a block late plays the step it decides again when the frame's
+// audio starts, after the page's presses (to 0.2.5's second build it played in the transport, and an audition on that
+// frame took the drum from it: the step's Hold ended at the audition's gate).
+void testClockEdges()
+{
+    auto tone = [] (Instance& a, int step) {
+        a.setup ({ { "Source", 0.0 }, { "FM Index", 0.0 }, { "Timbre", 0.0 }, { "Bloom", 0.0 }, { "Feedback", 0.0 }, { "Drift", 0.0 },
+                   { "Bend", 0.0 }, { "Snap", 0.0 }, { "Human", 0.0 }, { "Decay", 0.0 }, { "Ring", 0.0 }, { "Echo", 0.0 }, { "Space", 0.0 },
+                   { "Hold", 0.6 }, { "Swing", 0.5 }, { "Gate", 0.5 }, { "Rate", a.valueOf ("Rate", "1/4") } });
+        for (int s = 1; s <= 16; ++s)
+            a.setup ({ { "Trig " + std::to_string (s), s == step ? 1.0 : 0.0 }, { "Chance " + std::to_string (s), 1.0 } });
+    };
+    const double lit = std::pow (10.0, -30.0 / 20.0);
+    {
+        Instance a;
+        tone (a, 16);
+        const auto out = a.run (60000, {}, [] (uint64_t at) { return Transport { true, -2.0 + (double) at * 2.0 / 48000.0 }; });
+        const double during = floorOf (out, 26400, 33600), after = peakOf (out, 43200, 48000); // beats -0.9 to -0.6, -0.2 to 0
+        if (during <= lit || after >= 1e-3)
+            std::printf ("  a pre-roll: step 16 at beat -1 %.1f dB in its gate, %.1f dB at -0.2 to 0\n", dbOf (during), dbOf (after));
+        CHECK (during > lit);
+        CHECK (after < 1e-3);
+    }
+    for (uint32_t block : { 64u, 128u }) // a 3-beat loop's wrap (frame 72,000) told on time, or 64 frames late
+    {
+        const uint64_t told = block == 64 ? 72000 : 72064;
+        Instance a;
+        tone (a, 1);
+        const auto out = a.run (96000, { audition (told) }, looping (3.0), block);
+        const double low = floorOf (out, (size_t) told + 4800, (size_t) told + 11000); // the step's gate runs 12,000 frames
+        if (low <= lit)
+            std::printf ("  the audition on the frame the wrap is told %s: the step's Hold falls to %.1f dB\n", block == 64 ? "on time" : "late",
+                         dbOf (low));
         CHECK (low > lit);
     }
 }
@@ -402,6 +444,9 @@ int main()
     const int before3 = failures;
     testGateEnds();
     std::printf ("gate ends    %s\n", failures > before3 ? "FAILED" : "ok");
+    const int before4 = failures;
+    testClockEdges();
+    std::printf ("clock edges  %s\n", failures > before4 ? "FAILED" : "ok");
     hdslave_inner_clap_entry.deinit();
     std::printf ("%d checks, %d failed\n", checks, failures);
     return failures == 0 ? 0 : 1;

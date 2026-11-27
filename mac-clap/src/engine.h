@@ -11,6 +11,7 @@
 #include "voice.h"
 
 #include <atomic>
+#include <limits>
 
 namespace mystik
 {
@@ -82,7 +83,7 @@ public:
         lastStep = -1;
         now = 0;
         clockedAt = -(int64_t (1) << 40);
-        clockedLoud = false;
+        clockedLoud = replayWanted = false;
         queueSize = 0;
         held = 0;
         owner = -1;
@@ -162,7 +163,7 @@ public:
             d.force *= velocity;
             d.accent = d.accent || h.accent;
             d.slide = false;
-            playDecision (d, -1);
+            playDecision (d, noClock);
         }
         else // Pitch: the key from C3, overlapping keys slide
         {
@@ -212,7 +213,7 @@ public:
         slideHeld = false;
         Decision d = stepDecision (s);
         d.slide = false;
-        playDecision (d, -1);
+        playDecision (d, noClock);
         enqueue (now + (uint64_t) std::max (1.0, knob[ParamId::gate] * rate * 0.125), Queued::release, Hit {}, auditionClock);
     }
 
@@ -253,6 +254,11 @@ public:
     void render (float* left, float* right, uint32_t frames)
     {
         applyKnobs();
+        if (replayWanted) // the step a loop's wrap told late decides again (relocate), on this frame
+        {
+            replayWanted = false;
+            clock (lastStep);
+        }
         float* out = left;
         bool silentRun = true;
         while (frames > 0)
@@ -393,8 +399,10 @@ private:
         if (jumped && std::fabs ((double) ((int64_t) now - clockedAt) - late) <= 2.0)
         {
             lastStep = b;
+            // It plays when the frame's audio starts (render), after the frame's notes and the page's presses, as a
+            // step told on time does: a key transposes it, and it takes the drum from an audition on this frame.
             if (! clockedLoud)
-                clock (b);
+                replayWanted = true;
             return;
         }
         lastStep = b - (late < window ? 1 : 0);
@@ -647,9 +655,11 @@ private:
         clockedLoud = true;
         // The step takes the drum from every older strike, and their gate ends still to come go: the page's
         // audition's, an older ball's (a loop shorter than Bounce's cycle drops a new one each time round), a step's
-        // whose gate runs past a loop's wrap, a faster Rate or a quicker tempo. Each would end this step's Hold early;
-        // its own end comes in their place. (A gate end due on this frame came first: one held for this step's slide
-        // is slideHeld.)
+        // whose gate runs past a loop's wrap, or one a Rate change or a tempo change has left running past this step.
+        // Each would end this step's Hold early; its own end comes in their place. A gate end due on this very frame
+        // has fired first, except for the step a late wrap decides again (relocate, then render's first frame), which
+        // drops it: harmless, as this step strikes on the same frame. (One held for a slide into this step is
+        // slideHeld.)
         owner = -1;
         dropQueued ([] (const Queued& q) { return q.kind == Queued::release; });
         playDecision (d, k);
@@ -665,20 +675,20 @@ private:
         h.slide = d.slide;
         h.hold = knob[ParamId::hold] > 0.0f;
         h.semis = transpose + degreeSemis (d.degree, scale());
-        const double stepFrames = k >= 0 && perFrame > 0.0 ? (clockBeat (k + 1) - clockBeat (k)) / perFrame : rate * 0.125;
-        if (mode() == SeqMode::bounce && k >= 0)
+        const double stepFrames = isStep (k) && perFrame > 0.0 ? (clockBeat (k + 1) - clockBeat (k)) / perFrame : rate * 0.125;
+        if (mode() == SeqMode::bounce && isStep (k))
         {
             bounce (h, k);
             return;
         }
         strikeWithStroke (h, stepFrames, k);
-        if (k >= 0)
+        if (isStep (k))
             enqueue (now + (uint64_t) std::max (1.0, knob[ParamId::gate] * stepFrames), Queued::release, Hit {}, k);
     }
 
-    // Flam and Roll are further hits; the rest strike once. `k` is the sequence's clock for a step's hits (-1: a
+    // Flam and Roll are further hits; the rest strike once. `k` is the sequence's clock for a step's hits (noClock: a
     // key's or the page's, which are the player's own and complete across a Stop; see releaseGate).
-    void strikeWithStroke (const Hit& h, double stepFrames = 0.0, int64_t k = -1)
+    void strikeWithStroke (const Hit& h, double stepFrames = 0.0, int64_t k = noClock)
     {
         if (stepFrames <= 0.0)
             stepFrames = rate * 0.125;
@@ -689,7 +699,7 @@ private:
             voice.strike (grace);
             Hit main = h;
             main.stroke = Stroke::open, main.follow = true;
-            enqueue (now + (uint64_t) std::lround (0.022 * rate), Queued::hit, main, -1, k >= 0);
+            enqueue (now + (uint64_t) std::lround (0.022 * rate), Queued::hit, main, noClock, isStep (k));
             return;
         }
         if (h.stroke == Stroke::roll && ! h.slide)
@@ -705,7 +715,7 @@ private:
                 if (i == 0)
                     voice.strike (r);
                 else
-                    enqueue (now + (uint64_t) std::lround (at), Queued::hit, r, -1, k >= 0);
+                    enqueue (now + (uint64_t) std::lround (at), Queued::hit, r, noClock, isStep (k));
                 at += gap, gap *= 0.7;
             }
             return;
@@ -738,10 +748,10 @@ private:
             if (j == 0)
                 voice.strike (h);
             else
-                enqueue (now + (uint64_t) std::max (1.0, at + jitter), Queued::hit, h, -1, true);
+                enqueue (now + (uint64_t) std::max (1.0, at + jitter), Queued::hit, h, noClock, true);
             at += gap, gap *= r;
         }
-        enqueue (now + (uint64_t) std::max (1.0, 0.95 * cycle), Queued::release, Hit {}, -1);
+        enqueue (now + (uint64_t) std::max (1.0, 0.95 * cycle), Queued::release, Hit {}, noClock);
     }
 
     // --- The queue of hits and gate ends still to come (time order) -------------------------------------------------
@@ -792,7 +802,7 @@ private:
             return;
         }
         // A gate's end: held on if the next step slides into its note.
-        if (q.clock >= 0 && playing && seqOn())
+        if (isStep (q.clock) && playing && seqOn())
         {
             SeqState ahead = st;
             const Decision next = decide (q.clock + 1, ahead);
@@ -915,7 +925,14 @@ private:
     // A step's gate end was held on for the next step's slide, which has not played yet: if that step does not play
     // after all, its clock ends the gate.
     bool slideHeld = false;
-    static constexpr int64_t auditionClock = -3; // marks the page's audition's gate end in the queue
+    // A step's clock may be any number, a negative one too: a host's pre-roll before the song's top plays the steps
+    // that lead into step 1 (clock -1 is the last of the pattern), each with its gate end. What is no step is marked
+    // far below them: a key's or the page's strike and a ball's gate end (noClock), the page's audition's gate end
+    // (auditionClock).
+    static constexpr int64_t noClock = std::numeric_limits<int64_t>::min();
+    static constexpr int64_t auditionClock = noClock + 2;
+    static bool isStep (int64_t k) { return k > auditionClock; }
+    bool replayWanted = false; // relocate's step b, still to play when the frame's audio starts
     static constexpr int queueCapacity = 48;
     Queued queue[queueCapacity] {};
     int queueSize = 0;

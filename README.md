@@ -67,20 +67,21 @@ or more accents too). It plays a step that rests, or that Chance or Density woul
 sequence nor the transposition: the step the sequence plays next is the one it would have played anyway, and it takes
 the drum back. In Euclid, Turing, Automaton, Bounce and Rhythm a pad plays the step's own Pitch, Trig and Stroke (so
 not Turing's pitches, the accents Euclid and Automaton add, or a timeline's strokes). Two pads at once: the louder
-plays. A pad struck just as the sequence plays a step gives way to that step. While a pad is held, Hold keeps the gate
-lit, until the pad is let go or the sequence's next step takes over. The other keys: with the song playing, a key
-transposes the pattern (from C3, latched); stopped, keys play the drum as Notes says. A key that struck the drum
-(stopped, or with the Sequencer off) keeps Hold lit while it is held, through Play, Stop or the Sequencer switched
-off, until it is let go or a step of the sequence, SEQ's Shift + Push, or a newer key or pad takes the drum. Hold
-follows the key or pad that struck the drum last: an older one still held, let go before or after, ends nothing (in
-Pitch the newer of two keys let go glides back to the older, which then plays the drum). Shift + Push's step
-keeps its gate for Gate's share of an eighth of a second, whether a key is held or not, and through a Stop, unless a
-step of the sequence takes the drum first (an older step's gate end no longer ends it). A key let go meanwhile does
-not slide back to another one held; nor does one let go once a step has taken the drum, nor onto a drum gone quiet (it
-would strike it anew). A step that plays takes the drum from every older strike, so no older gate end still to come
-cuts its Hold: an older ball's in a loop shorter than Bounce's cycle (each time round drops a new ball), a step's whose
-gate runs past a loop's wrap, or one left long by a faster Rate. A gate end always comes: when the queue of hits still
-to come is full (a burst of rolls, or such a loop in Bounce), a hit gives way to it.
+plays. A pad struck just as the sequence plays a step gives way to that step (a loop's wrap told a block late too).
+While a pad is held, Hold keeps the gate lit, until the pad is let go or the sequence's next step takes over. The
+other keys: with the song playing, a key transposes the pattern (from C3, latched); stopped, keys play the drum as
+Notes says. A key that struck the drum (stopped, or with the Sequencer off) keeps Hold lit while it is held, through
+Play, Stop or the Sequencer switched off, until it is let go or a step of the sequence, SEQ's Shift + Push, or a
+newer key or pad takes the drum. Hold follows the key or pad that struck the drum last: an older one still held, let
+go before or after, ends nothing (in Pitch the newer of two keys let go glides back to the older, which then plays
+the drum). Shift + Push's step keeps its gate for Gate's share of an eighth of a second, whether a key is held or
+not, and through a Stop, unless a step of the sequence takes the drum first (an older step's gate end no longer ends
+it). A key let go meanwhile does not slide back to another one held; nor does one let go once a step has taken the
+drum, nor onto a drum gone quiet (it would strike it anew). A step that plays takes the drum from every older strike,
+so no older gate end still to come cuts its Hold: an older ball's in a loop shorter than Bounce's cycle (each time
+round drops a new ball), a step's whose gate runs past a loop's wrap, or one a Rate change or a tempo change left
+running. A gate end always comes: when the queue of hits still to come is full (a burst of rolls, or such a loop in
+Bounce), a hit gives way to it.
 **Sequencer off: the pads play
 notes**, as Notes says: **Pitch** (the key sets the pitch from C3; velocity 100 or more accents; overlapping keys slide
 and hold), **Strokes** (keys 36-43 play the eight strokes at Tune, each 8 keys up an octave: two drums, high and low,
@@ -142,7 +143,7 @@ tank's level), Space Decay, Volume.
 |---|---|
 | Sequencer | Off / On. On, pads 1-16 play its steps; off, they play notes (see Playing it) |
 | Seq Mode | Pattern, Euclid, Turing, Automaton, Bounce, Rhythm (below) |
-| Rate | 1/2 to 1/64, triplets: a step on each from the song's top, so the same place always plays the same step |
+| Rate | 1/2 to 1/64, triplets: a step on each from the song's top, so the same place always plays the same step (a host's pre-roll before the top plays the steps leading into step 1, each with its gate) |
 | Length | 1-16 steps (Rhythm uses its timeline's) |
 | Direction | Forward, Backward, Ping-Pong, Brownian (a random walk, mostly forward), Random |
 | Swing | 50-75 %: every second step late, as an MPC's swing |
@@ -213,7 +214,7 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
     tools/bench.sh           # instructions a block (callgrind): worst, acid, typical, stopped, a page frame
     ./build.sh fingerprint-update   # only after a change meant to change the sound
 
-- `tests/host.cpp` (810,150 checks): the description, every parameter's text both ways (a step's Pitch by its note's
+- `tests/host.cpp` (817,532 checks): the description, every parameter's text both ways (a step's Pitch by its note's
   name too), state (a 0.1 state keeping Human at 0, a newer version refused), presets, the gate held
   to the 292's response at seven settings, the vactrol's timing, steps to the sample (swing too), every sequencer mode,
   stop and Play again, a loop the host tells a block late sounding as one told on time in Turing, Brownian and
@@ -232,8 +233,9 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
   the key or pad that struck last, an older key held: through an audition and a step pad, in Strokes, two pads, a step
   taking the drum while playing; Pitch's glide back to the older key; a full queue of rolls not losing an audition's
   gate end; no older gate end cutting a step's Hold, the light read off a sine through the gate: Bounce at 1/2 in a
-  one-bar loop, a 3-beat loop whose step 2's gate runs past the wrap, told on time and late, Rate made faster in a
-  step's gate), the step
+  one-bar loop, a 3-beat loop whose step 2's gate runs past the wrap, told on time and late, a Rate change in a
+  step's gate; a pre-roll from beat -2, its step before the top lit for its gate; a pad, and the page's audition, on
+  the frame a late-told wrap replays a step, giving way to it), the step
   pads (each pad against Notes: Steps and against the sequence playing that step, their pitches stopped and playing,
   the sequence and the transposition left as they were, Turing's register too, the other keys still transposing, the
   sequencer off, two pads on a frame, on/on/off, a pad on Play's frame, Hold while the sequence plays, a pad's roll

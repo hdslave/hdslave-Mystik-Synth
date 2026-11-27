@@ -839,18 +839,22 @@ std::vector<Call> hostCalls (uint64_t blocks, double bpm, double rate, const std
 }
 
 // Plays the calls, the song playing throughout; each call's output is added where it goes, or with `inOrder` put one
-// after another (the plug-in's own stream, as it was played).
-std::vector<float> playCalls (Instance& a, const std::vector<Call>& calls, double bpm, bool inOrder = false)
+// after another (the plug-in's own stream, as it was played). `events (k, list)` adds events to call k.
+std::vector<float> playCalls (Instance& a, const std::vector<Call>& calls, double bpm, bool inOrder = false,
+                              const std::function<void (size_t, Events&)>& events = {})
 {
     uint64_t total = 0;
     for (const auto& c : calls)
         total += c.frames;
     std::vector<float> l (inOrder ? total : calls.empty() ? 0 : calls.back().at + calls.back().frames, 0.0f), cl (128), cr (128);
-    Events none;
     OutEvents ignored;
     int64_t steady = 0;
-    for (const auto& c : calls)
+    for (size_t k = 0; k < calls.size(); ++k)
     {
+        const auto& c = calls[k];
+        Events none;
+        if (events)
+            events (k, none);
         clap_event_transport tr {};
         tr.header = { sizeof (clap_event_transport), 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_TRANSPORT, 0 };
         tr.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | CLAP_TRANSPORT_IS_PLAYING;
@@ -1128,6 +1132,24 @@ void testJumpEdges()
         if (debug)
             std::printf ("debug two clocks passed: a hit %.4f, at the jump %.4f\n", hit, there);
         CHECK (there < hit * 0.2);
+    }
+    // Rate changed while the place is held behind a step that lies on both grids: the new grid counts on from where the
+    // steps got to, not from the place told, so that step is not played again. 1/16 to 1/8 at the first block after
+    // beat 1 (0.0014 quarter after it), the place told 0.01 behind from that block on.
+    {
+        const uint64_t at = (uint64_t) std::ceil (1.0 / perFrame / 128.0) * 128, blocks = (uint64_t) (3.0 / perFrame / 128.0);
+        Instance a (rate);
+        steps (a, "1/16");
+        const double toEighths = a.valueOf ("Rate", "1/8");
+        const auto l = playCalls (a, hostCalls (blocks, bpm, rate, [&] (uint64_t f) { return (double) f * perFrame - (f >= at ? 0.01 : 0.0); }), bpm,
+                                  false, [&] (size_t k, Events& e) { if (k == at / 128) a.set (e, "Rate", toEighths); });
+        std::vector<double> expect;
+        for (double b : { 0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0 })
+            expect.push_back ((b + (b > 1.0 ? 0.01 : 0.0)) / perFrame);
+        const auto p = played (l, expect, loneHit (l, expect), 1.12);
+        if (debug)
+            std::printf ("debug regrid while held: %d clocks, %d hits, %d twice, %d lost\n", p.clocks, p.hits, p.twice, p.lost);
+        CHECK (p.clocks == 8 && p.twice == 0 && p.lost == 0 && p.hits == p.clocks);
     }
 }
 

@@ -167,7 +167,8 @@ into the step without a new strike), **Stroke** (Open, Slap, Bass, Mute, Ghost, 
 The song's place a little off its line, either way, by up to a 64th note, is followed as it is: hdslaveOS works
 the place out from its ticks, so a swung tick, a tick on a block's edge or MTC's trim puts it up to 0.0021 of a
 quarter off from block to block, and a plug-in two tracks play is run twice a block (its next block's first call told
-a block back). A step back holds the steps already played until the song is past them again. Up to 0.3.5 a step back
+a block back). A step back holds the steps already played until the song is past them again (a Rate change meanwhile
+counts on from where the steps got to, so none plays again). Up to 0.3.5 a step back
 of more than the call's own frames counted as a jump: with the calls in parts, at slow tempos or run twice a block, a
 step could play twice or be lost (at 40 BPM with the place up to 0.002 of a quarter off, 22 of 96 sixteenths played
 twice, 3 were lost). A move of more than a 64th note is a jump, as before (exactly a 64th, as hdslaveOS has it, is

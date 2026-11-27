@@ -92,6 +92,7 @@ public:
         fx.reset();
         playing = fresh = false;
         lastStep = -1;
+        reached = -1.0e300;
         now = 0;
         clockedAt = -(int64_t (1) << 40);
         clockedLoud = false;
@@ -278,6 +279,8 @@ public:
         else if (moved > 0.5 * perFrame && moved >= window * perFrame
                  && (moved > jumpBeats + jumpSlack || (beats > position && clockAtOrBefore (beats) > lastStep + 1)))
             relocate (beats, window, true);
+        else if (beats < position)
+            reached = std::max (reached, position); // held: where the steps got to, for a Rate change meanwhile
         playing = true;
         position = beats;
     }
@@ -479,6 +482,7 @@ private:
         const int64_t b = clockAtOrBefore (beats);
         const double late = (beats - clockBeat (b)) / perFrame;
         position = beats;
+        reached = -1.0e300;
         regridWanted = false;
         // A loop gone round inside a block (the host tells only at the next): the step played on the frame its step b
         // began was b. Line up with b; play b only if the step played then was silent.
@@ -501,9 +505,10 @@ private:
         lastStep = b - (late < window ? 1 : 0);
     }
 
+    // Rate changed: from where the steps got to (while the place is held behind them, not the place).
     void regrid()
     {
-        lastStep = clockAtOrBefore (position - perFrame * (1.0 - clockSlack));
+        lastStep = clockAtOrBefore (std::max (position, reached) - perFrame * (1.0 - clockSlack));
         regridWanted = false;
     }
 
@@ -1012,6 +1017,7 @@ private:
     Voice voice;
     Effects fx;
     double rate = 48000.0, perFrame = 0.0, position = 0.0;
+    double reached = -1.0e300; // the furthest place the steps got to while the place stepped back (a hold); none
     float knob[ParamId::count] {};
     bool voiceDirty = true, fxDirty = true;
     bool playing = false, fresh = false, reseed = false, regridWanted = false, seedChanged = false;

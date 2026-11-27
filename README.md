@@ -164,13 +164,14 @@ tank's level), Space Decay, Volume.
 Per step: **Pitch** (a degree of Scale, -21 to 21), **Trig** (Rest, Hit, Accent, Slide, Acc+Slide: a slide glides
 into the step without a new strike), **Stroke** (Open, Slap, Bass, Mute, Ghost, Flam, Roll, Press), **Chance**.
 
-The song's place a little off its line, either way, by less than a 64th note, is followed as it is: hdslaveOS works
+The song's place a little off its line, either way, by up to a 64th note, is followed as it is: hdslaveOS works
 the place out from its ticks, so a swung tick, a tick on a block's edge or MTC's trim puts it up to 0.0021 of a
 quarter off from block to block, and a plug-in two tracks play is run twice a block (its next block's first call told
 a block back). A step back holds the steps already played until the song is past them again. Up to 0.3.5 a step back
 of more than the call's own frames counted as a jump: with the calls in parts, at slow tempos or run twice a block, a
 step could play twice or be lost (at 40 BPM with the place up to 0.002 of a quarter off, 22 of 96 sixteenths played
-twice, 3 were lost). A move of a 64th note or more is a jump, as before.
+twice, 3 were lost). A move of more than a 64th note is a jump, as before (exactly a 64th, as hdslaveOS has it, is
+not).
 
 The modes:
 

@@ -1067,6 +1067,50 @@ void testPositionJitter()
     }
 }
 
+// The edges of a jump, at 127 BPM (44.1 kHz), the song from beat 0 in hdslaveOS's blocks of 128. The drum's tail is
+// long, so the steps are told by each one's stretch's energy (played()), against a lone hit's.
+void testJumpEdges()
+{
+    const double rate = 44100.0, bpm = 127.0, perFrame = bpm / 60.0 / rate;
+    const bool debug = std::getenv ("MYSTIK_DEBUG") != nullptr;
+    auto steps = [&] (Instance& a, const char* rate, std::vector<std::pair<std::string, double>> more = {}) {
+        auto patch = clickPatch();
+        patch.push_back ({ "Rate", a.valueOf ("Rate", rate) });
+        patch.insert (patch.end(), more.begin(), more.end());
+        a.setup (patch);
+    };
+    // A place told exactly a 64th note behind where the last block's frames led is no jump, as hdslaveOS has it (a move
+    // of more than a 64th is one): the step played (beat 1, in sixteenths) is held, whatever the block before was told.
+    // Before, the CLAP rounding of the two places decided, so the same move was a jump after one block and not after
+    // another.
+    {
+        const uint64_t blocks = (uint64_t) (2.5 / perFrame / 128.0), at = (uint64_t) (1.02 / perFrame / 128.0) * 128;
+        int twice = 0, lost = 0;
+        for (double off : { 0.001, -0.001, 0.0013, -0.0007, 0.0002, -0.0019, 0.0, 0.0017 })
+        {
+            Instance a (rate);
+            steps (a, "1/16");
+            const double before = (double) (at - 128) * perFrame + off; // the block before, told `off` off its line
+            auto place = [&] (uint64_t f) {
+                if (f < at - 128)
+                    return (double) f * perFrame;
+                if (f < at)
+                    return before;
+                return before + (double) (f - at + 128) * perFrame - 1.0 / 16.0;
+            };
+            const auto l = playCalls (a, hostCalls (blocks, bpm, rate, place), bpm);
+            std::vector<double> expect; // held: the steps after beat 1 come a 64th later, less `off`
+            for (int k = 0; k <= 12; ++k)
+                expect.push_back ((k * 0.25 + (k > 4 ? 1.0 / 16.0 - off : 0.0)) / perFrame);
+            const auto p = played (l, expect, loneHit (l, expect), 1.12);
+            if (debug)
+                std::printf ("debug exactly a 64th back after %+.4f: %d clocks, %d twice, %d lost\n", off, p.clocks, p.twice, p.lost);
+            twice += p.twice, lost += p.lost;
+        }
+        CHECK (twice == 0 && lost == 0);
+    }
+}
+
 void testBlockSizes()
 {
     auto scene = [] (uint32_t block) {
@@ -2861,6 +2905,7 @@ int main (int argc, char** argv)
     run ("modes", testModes);
     run ("transport", testTransport);
     run ("jitter", testPositionJitter);
+    run ("edges", testJumpEdges);
     run ("blocks", testBlockSizes);
     run ("notes", testNotes);
     run ("hold", testHold);

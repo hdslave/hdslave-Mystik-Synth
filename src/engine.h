@@ -23,6 +23,8 @@ constexpr double clockSlack = 1.0e-3;
 // block's edge, MTC's trim: up to 0.0021 of a quarter), and a plug-in two tracks play is run twice a block (its second
 // call told a block on, the next block's first a block back).
 constexpr double jumpBeats = 1.0 / 16.0;
+// CLAP rounds the place to 2^-31 beats: a move told as exactly a 64th note can read a hair over it.
+constexpr double jumpSlack = 1.0e-9;
 
 // What a step plays.
 struct Decision
@@ -272,7 +274,7 @@ public:
             fresh = true; // a Play: the generative modes start from Seed
             relocate (beats, window, false);
         }
-        else if (moved > 0.5 * perFrame && moved >= window * perFrame && moved >= jumpBeats)
+        else if (moved > 0.5 * perFrame && moved >= window * perFrame && moved > jumpBeats + jumpSlack)
             relocate (beats, window, true);
         playing = true;
         position = beats;

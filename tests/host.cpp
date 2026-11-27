@@ -1109,6 +1109,26 @@ void testJumpEdges()
         }
         CHECK (twice == 0 && lost == 0);
     }
+    // A move on by less than a 64th note that passes two clocks (Swing 75 at 1/64 puts a late clock 1/128 before the
+    // next one: a locate on, a MIDI clock catching up) is a jump, as it was: the step the song landed on plays at once,
+    // not the two passed on one frame (the louder of them). Here the song's place goes from just before clock 17 (a late
+    // one, a hit) to 0.002 quarter past clock 18 (a rest) at a block's start: nothing strikes there.
+    {
+        std::vector<std::pair<std::string, double>> swung { { "Swing", 0.75 } };
+        for (int s = 1; s <= 16; ++s)
+            swung.push_back ({ "Trig " + std::to_string (s), s % 2 == 0 ? 1.0 : 0.0 }); // the late clocks hit, the rest rest
+        const double c15 = (14 + 1.5) * 0.0625, c17 = (16 + 1.5) * 0.0625, c18 = 1.125;
+        const uint64_t at = (uint64_t) (c17 / perFrame / 128.0) * 128, blocks = at / 128 + 40;
+        const double landed = c18 + 0.002;
+        Instance a (rate);
+        steps (a, "1/64", swung);
+        const auto l = playCalls (a, hostCalls (blocks, bpm, rate, [&] (uint64_t f) {
+            return f < at ? (double) f * perFrame : landed + (double) (f - at) * perFrame; }), bpm);
+        const double hit = stretchEnergy (l, (long) (c15 / perFrame), 600), there = stretchEnergy (l, (long) at, 600);
+        if (debug)
+            std::printf ("debug two clocks passed: a hit %.4f, at the jump %.4f\n", hit, there);
+        CHECK (there < hit * 0.2);
+    }
 }
 
 void testBlockSizes()

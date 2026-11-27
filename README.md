@@ -171,7 +171,8 @@ a block back). A step back holds the steps already played until the song is past
 of more than the call's own frames counted as a jump: with the calls in parts, at slow tempos or run twice a block, a
 step could play twice or be lost (at 40 BPM with the place up to 0.002 of a quarter off, 22 of 96 sixteenths played
 twice, 3 were lost). A move of more than a 64th note is a jump, as before (exactly a 64th, as hdslaveOS has it, is
-not).
+not), and so is one on past two clocks (Swing 75 at 1/64): the step the song landed on plays, not the two passed on one
+frame.
 
 The modes:
 

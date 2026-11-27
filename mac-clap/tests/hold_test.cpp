@@ -1,8 +1,8 @@
 // Hold in the desktop copy: the engine and glue of src/ (the inner plug-in, as the desktop bundle runs it), played as a
 // host plays it, with keys, the page's Shift + Push on SEQ (the audition) and the transport at block boundaries. It
 // holds the Hold rules the MPC build's tests/host.cpp holds for the same code: Hold follows the key that struck the
-// drum last, a gate end is never lost, Stop takes the sequence's queued hits, and a block's first-frame notes and
-// presses come after its transport.
+// drum last, a step's Hold is not cut by an older strike's gate end, a gate end is never lost, Stop takes the
+// sequence's queued hits, and a block's first-frame notes and presses come after its transport.
 //   hold_test
 #include "melodee_screen.h"
 
@@ -296,6 +296,92 @@ void testFrameZero()
         CHECK (out == ref);
     }
 }
+
+double rmsOf (const std::vector<float>& x, size_t from, size_t to)
+{
+    double sum = 0.0;
+    for (size_t i = from; i < to; ++i)
+        sum += (double) x[i] * x[i];
+    return to > from ? std::sqrt (sum / (double) (to - from)) : 0.0;
+}
+double floorOf (const std::vector<float>& x, size_t from, size_t to) // the quietest 10 ms (480 frames) in [from, to)
+{
+    double low = 1e9;
+    for (size_t w = from; w + 480 <= to; w += 480)
+        low = std::min (low, rmsOf (x, w, w + 480));
+    return low;
+}
+double dbOf (double v) { return 20.0 * std::log10 (v + 1e-12); }
+std::function<Transport (uint64_t)> looping (double beats) // 120 BPM, a loop of `beats` from the song's top
+{
+    return [=] (uint64_t at) { return Transport { true, std::fmod ((double) at * 2.0 / 48000.0, beats) }; };
+}
+
+// A step that plays takes the drum from every older strike, and their gate ends still to come no longer end its Hold.
+// A sine through the gate (the oscillator alone), so the output's quietest 10 ms shows the light: lit at Hold's level
+// it stays near the hit's, unlit it falls to silence. To 0.2.5's first build (and 0.2.4) an older strike's end cut the
+// newer one's Hold: Bounce at 1/2 in a one-bar loop (from bar 8 an older ball's end lands 0.6 into every bar), a 3-beat
+// loop at 1/2 whose step 2's gate runs past the wrap (Gate 50 %; with Gate 100 % and the wrap told late, step 1's end
+// lands in step 2), and Rate made faster inside a step's gate.
+void testGateEnds()
+{
+    auto tone = [] (Instance& a, const std::vector<std::pair<std::string, double>>& more) {
+        std::vector<std::pair<std::string, double>> v { { "Source", 0.0 }, { "FM Index", 0.0 }, { "Timbre", 0.0 }, { "Bloom", 0.0 },
+                                                         { "Feedback", 0.0 }, { "Drift", 0.0 }, { "Bend", 0.0 }, { "Snap", 0.0 }, { "Human", 0.0 },
+                                                         { "Decay", 0.0 }, { "Ring", 0.0 }, { "Echo", 0.0 }, { "Space", 0.0 }, { "Hold", 0.6 } };
+        v.insert (v.end(), more.begin(), more.end());
+        a.setup (v);
+    };
+    auto everyStep = [] (Instance& a) {
+        for (int s = 1; s <= 16; ++s)
+            a.setup ({ { "Trig " + std::to_string (s), 1.0 }, { "Chance " + std::to_string (s), 1.0 } });
+    };
+    const double lit = std::pow (10.0, -30.0 / 20.0);
+    {
+        Instance a;
+        tone (a, { { "Seq Mode", a.valueOf ("Seq Mode", "Bounce") }, { "Rate", a.valueOf ("Rate", "1/2") }, { "Density", 1.0 } });
+        const auto out = a.run (96000 * 20, {}, looping (4.0));
+        double low = 1.0;
+        for (int bar = 10; bar < 20; ++bar)
+            low = std::min (low, floorOf (out, (size_t) bar * 96000 + 57600, (size_t) (bar + 1) * 96000));
+        CHECK (peakOf (out, 0, 4800) > 0.1);
+        if (low <= lit)
+            std::printf ("  Bounce at 1/2 in a one-bar loop: the last 0.4 of bars 10-19 falls to %.1f dB\n", dbOf (low));
+        CHECK (low > lit);
+    }
+    for (double gate : { 0.5, 1.0 })
+        for (uint32_t block : { 64u, 128u }) // the wrap (frame 72,000) a block's first frame, or told 64 frames late
+        {
+            Instance a;
+            tone (a, { { "Rate", a.valueOf ("Rate", "1/2") }, { "Gate", gate } });
+            everyStep (a);
+            const auto out = a.run (72000 * 8, {}, looping (3.0), block);
+            double first = 1.0, second = 1.0; // each pass's step 1 at 0.2-1.0 beat, step 2 at 2.3-3.0
+            for (int pass = 0; pass < 8; ++pass)
+            {
+                const size_t at = (size_t) pass * 72000;
+                first = std::min (first, floorOf (out, at + 4800, at + 24000));
+                second = std::min (second, floorOf (out, at + 55200, at + 72000));
+            }
+            if (first <= lit || second <= lit)
+                std::printf ("  a 3-beat loop, Gate %.0f %%, the wrap told %s: step 1 falls to %.1f dB, step 2 to %.1f dB\n", gate * 100.0,
+                             block == 64 ? "on time" : "late", dbOf (first), dbOf (second));
+            CHECK (first > lit);
+            CHECK (second > lit);
+        }
+    {
+        // Swing 50 %, Gate 75 %: step 1 at 0 (1/2, its gate to 1.5 beats), Rate 1/4 from beat 0.5: the next step plays
+        // at beat 1, its gate to 1.75.
+        Instance a;
+        tone (a, { { "Rate", a.valueOf ("Rate", "1/2") }, { "Swing", 0.5 }, { "Gate", 0.75 } });
+        everyStep (a);
+        const auto out = a.run (48000, { { 12000, Event::param, 0, a.valueOf ("Rate", "1/4"), "Rate" } }, looping (1000.0));
+        const double low = floorOf (out, 38400, 42000); // 1.6-1.75 beats
+        if (low <= lit)
+            std::printf ("  Rate made faster in a step's gate: the next step falls to %.1f dB\n", dbOf (low));
+        CHECK (low > lit);
+    }
+}
 } // namespace
 
 int main()
@@ -313,6 +399,9 @@ int main()
     const int before2 = failures;
     testFrameZero();
     std::printf ("frame zero   %s\n", failures > before2 ? "FAILED" : "ok");
+    const int before3 = failures;
+    testGateEnds();
+    std::printf ("gate ends    %s\n", failures > before3 ? "FAILED" : "ok");
     hdslave_inner_clap_entry.deinit();
     std::printf ("%d checks, %d failed\n", checks, failures);
     return failures == 0 ? 0 : 1;

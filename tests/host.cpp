@@ -1700,6 +1700,86 @@ void testFullQueue()
     CHECK (peakOf (out, 48000 * 2) < 1e-5);
 }
 
+double floorOf (const std::vector<float>& x, size_t from, size_t to) // the quietest 10 ms (480 frames) in [from, to)
+{
+    double low = 1e9;
+    for (size_t w = from; w + 480 <= to; w += 480)
+        low = std::min (low, rmsOf (x, w, w + 480));
+    return low;
+}
+double dbOf (double v) { return 20.0 * std::log10 (v + 1e-12); }
+
+// A step that plays takes the drum from every older strike, and their gate ends still to come no longer end its Hold.
+// The patch is a sine through the gate (the oscillator alone, no fold, FM, noise or ring), so the output's quietest
+// 10 ms shows the light: at Hold's level it stays near the hit's, unlit it falls to silence. To 0.3.6's first build
+// (and 0.3.5) an older strike's end, still to come, cut the newer one's Hold:
+// - Bounce at 1/2 (a cycle of 16 half notes, its ball's end at 95 % of it) and a one-bar loop: each time round drops a
+//   ball, and from bar 8 on an older ball's end lands 0.6 into every bar (to 0.3.5 the full queue had dropped most of
+//   those ends, and Hold stayed lit).
+// - Pattern at 1/2, every step a Hit, a 3-beat loop: step 2 strikes at 2.16 beats and its gate (Gate 50 %) ends at
+//   3.08, past the wrap, 0.08 into the next pass's step 1. With Gate 100 % and the wrap told a block late, step 1
+//   strikes 64 frames late, and its gate end lands 64 frames into step 2.
+// - Rate made faster inside a step's gate: the next step comes before the older step's end.
+void testGateEnds()
+{
+    auto tone = [] (Instance& a, const std::vector<std::pair<std::string, double>>& more) {
+        std::vector<std::pair<std::string, double>> v { { "Source", 0.0 }, { "FM Index", 0.0 }, { "Timbre", 0.0 }, { "Bloom", 0.0 },
+                                                         { "Feedback", 0.0 }, { "Drift", 0.0 }, { "Bend", 0.0 }, { "Snap", 0.0 }, { "Human", 0.0 },
+                                                         { "Decay", 0.0 }, { "Ring", 0.0 }, { "Echo", 0.0 }, { "Space", 0.0 }, { "Hold", 0.6 } };
+        v.insert (v.end(), more.begin(), more.end());
+        a.setup (v);
+    };
+    const double lit = std::pow (10.0, -30.0 / 20.0); // the light at Hold's level keeps every 10 ms above -30 dB here
+    {
+        Instance a;
+        tone (a, { { "Seq Mode", a.valueOf ("Seq Mode", "Bounce") }, { "Rate", a.valueOf ("Rate", "1/2") }, { "Density", 1.0 } });
+        std::vector<float> l, r;
+        a.render (96000 * 20, 128, l, r, [] (uint64_t at) { return Transport { true, 120.0, std::fmod ((double) at * 2.0 / 48000.0, 4.0) }; });
+        double low = 1.0;
+        for (int bar = 10; bar < 20; ++bar)
+            low = std::min (low, floorOf (l, (size_t) bar * 96000 + 57600, (size_t) (bar + 1) * 96000));
+        CHECK (peakOf (l, 0, 4800) > 0.1);
+        if (low <= lit)
+            std::printf ("  Bounce at 1/2 in a one-bar loop: the last 0.4 of bars 10-19 falls to %.1f dB\n", dbOf (low));
+        CHECK (low > lit);
+    }
+    for (double gate : { 0.5, 1.0 })
+        for (uint32_t block : { 64u, 128u }) // the wrap (frame 72,000) a block's first frame, or told 64 frames late
+        {
+            Instance a;
+            tone (a, { { "Rate", a.valueOf ("Rate", "1/2") }, { "Gate", gate } });
+            for (int s = 1; s <= 16; ++s)
+                a.setup ({ { "Trig " + std::to_string (s), 1.0 }, { "Chance " + std::to_string (s), 1.0 } });
+            std::vector<float> l, r;
+            a.render (72000 * 8, block, l, r, [] (uint64_t at) { return Transport { true, 120.0, std::fmod ((double) at * 2.0 / 48000.0, 3.0) }; });
+            double first = 1.0, second = 1.0; // each pass's step 1 at 0.2-1.0 beat, step 2 at 2.3-3.0
+            for (int pass = 0; pass < 8; ++pass)
+            {
+                const size_t at = (size_t) pass * 72000;
+                first = std::min (first, floorOf (l, at + 4800, at + 24000));
+                second = std::min (second, floorOf (l, at + 55200, at + 72000));
+            }
+            if (first <= lit || second <= lit)
+                std::printf ("  a 3-beat loop, Gate %.0f %%, the wrap told %s: step 1 falls to %.1f dB, step 2 to %.1f dB\n", gate * 100.0,
+                             block == 64 ? "on time" : "late", dbOf (first), dbOf (second));
+            CHECK (first > lit);
+            CHECK (second > lit);
+        }
+    {
+        // Swing 50 %, Gate 75 %: step 1 at 0 (1/2, its gate to 1.5 beats), Rate 1/4 from beat 0.5: the next step plays
+        // at beat 1, its gate to 1.75.
+        Instance a;
+        tone (a, { { "Rate", a.valueOf ("Rate", "1/2") }, { "Swing", 0.5 }, { "Gate", 0.75 } });
+        for (int s = 1; s <= 16; ++s)
+            a.setup ({ { "Trig " + std::to_string (s), 1.0 }, { "Chance " + std::to_string (s), 1.0 } });
+        const auto out = perform (a, 48000, { paramEvent (12000, "Rate", a.valueOf ("Rate", "1/4")) }, playingAll(), 128, false);
+        const double low = floorOf (out, 38400, 42000); // 1.6-1.75 beats
+        if (low <= lit)
+            std::printf ("  Rate made faster in a step's gate: the next step falls to %.1f dB\n", dbOf (low));
+        CHECK (low > lit);
+    }
+}
+
 void testRegenerate()
 {
     Instance a;
@@ -2353,6 +2433,7 @@ int main (int argc, char** argv)
     run ("holdplay", testHoldAcrossPlay);
     run ("holdlast", testHoldLast);
     run ("fullqueue", testFullQueue);
+    run ("gateends", testGateEnds);
     run ("regenerate", testRegenerate);
     run ("echo-dc", testEchoDc);
     run ("wrap", testWrap);

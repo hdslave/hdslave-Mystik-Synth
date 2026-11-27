@@ -645,8 +645,13 @@ private:
         }
         slideHeld = false;
         clockedLoud = true;
-        owner = -1; // the step takes the drum, from the page's audition too (its gate end would end it early)
-        dropQueued ([] (const Queued& q) { return q.kind == Queued::release && q.clock == auditionClock; });
+        // The step takes the drum from every older strike, and their gate ends still to come go: the page's
+        // audition's, an older ball's (a loop shorter than Bounce's cycle drops a new one each time round), a step's
+        // whose gate runs past a loop's wrap, a faster Rate or a quicker tempo. Each would end this step's Hold early;
+        // its own end comes in their place. (A gate end due on this frame came first: one held for this step's slide
+        // is slideHeld.)
+        owner = -1;
+        dropQueued ([] (const Queued& q) { return q.kind == Queued::release; });
         playDecision (d, k);
     }
 

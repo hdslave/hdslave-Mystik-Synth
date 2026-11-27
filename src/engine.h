@@ -724,12 +724,15 @@ private:
         clockedLoud = true;
         // The step takes the drum from a step pad: one struck on this frame gives way (a step plays at full force, so
         // it is never the softer, and it comes later), and a pad's flam or roll still to come is dropped. It takes it
-        // from the page's audition too, whose gate end would end the step's Hold early.
+        // from every older strike too, and their gate ends still to come go: the page's audition's, an older ball's
+        // (a loop shorter than Bounce's cycle drops a new one each time round), a step's whose gate runs past a loop's
+        // wrap, a faster Rate or a quicker tempo. Each would end this step's Hold early; its own end comes in their
+        // place. (A gate end due on this frame came first and is gone: one held for this step's slide is slideHeld.)
         padStep = -1;
         owner = -1;
         if (padHitsQueued)
             dropPadHits();
-        dropQueued ([] (const Queued& q) { return q.kind == Queued::release && q.clock == auditionClock; });
+        dropQueued ([] (const Queued& q) { return q.kind == Queued::release; });
         playDecision (d, k);
     }
 

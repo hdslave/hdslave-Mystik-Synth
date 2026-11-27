@@ -164,6 +164,14 @@ tank's level), Space Decay, Volume.
 Per step: **Pitch** (a degree of Scale, -21 to 21), **Trig** (Rest, Hit, Accent, Slide, Acc+Slide: a slide glides
 into the step without a new strike), **Stroke** (Open, Slap, Bass, Mute, Ghost, Flam, Roll, Press), **Chance**.
 
+The song's place a little off its line, either way, by less than a 64th note, is followed as it is: hdslaveOS works
+the place out from its ticks, so a swung tick, a tick on a block's edge or MTC's trim puts it up to 0.0021 of a
+quarter off from block to block, and a plug-in two tracks play is run twice a block (its next block's first call told
+a block back). A step back holds the steps already played until the song is past them again. Up to 0.3.5 a step back
+of more than the call's own frames counted as a jump: with the calls in parts, at slow tempos or run twice a block, a
+step could play twice or be lost (at 40 BPM with the place up to 0.002 of a quarter off, 22 of 96 sixteenths played
+twice, 3 were lost). A move of a 64th note or more is a jump, as before.
+
 The modes:
 
 - **Pattern**: the 16 steps as written, by Direction.
@@ -218,7 +226,9 @@ Built and tested in Melodee's build image (Debian bookworm, g++ 12) in the Colim
   name too), state (a 0.1 state keeping Human at 0, a newer version refused), presets, the gate held
   to the 292's response at seven settings, the vactrol's timing, steps to the sample (swing too), every sequencer mode,
   stop and Play again, a loop the host tells a block late sounding as one told on time in Turing, Brownian and
-  Automaton (and staying silent with the Sequencer off), a note and a step pad on Play's frame and on Stop's, a
+  Automaton (and staying silent with the Sequencer off), the place off its line (up to 0.002 of a quarter either
+  way, also in parts; swing 60's ticks; run twice a block; at 127 and 40 BPM: each step once, near its place) and
+  moved back under and over a 64th note, a note and a step pad on Play's frame and on Stop's, a
   stop (or the Sequencer off) taking the sequence's queued roll
   and bounce hits while a key's flam completes, the echo at its set time after All Sound Off through the plug-in
   (a new time sent with the panic too), a state loaded into a

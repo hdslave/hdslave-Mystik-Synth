@@ -41,6 +41,10 @@ Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melo
 Version 0.4.0. Not yet run on the MPC itself: tested in Melodee's own CLAP host and screen tool (see Testing); the
 pads' drum map and banks (0.4) have not been tried on the device either.
 
+## hdslave plug-in license
+
+You may use these plug-ins to make, perform, record and sell music, including paid client work, without royalties or credit to hdslave. You may share complete, unchanged official releases for free with their notices intact. Selling the software, including it in a paid product or subscription, or distributing a modified version requires prior written permission from hdslave. Third-party components keep their own licenses. [Full plug-in license](LICENSE.txt).
+
 ## Install
 
 Copy `Mystik.clap` (built as below, or from the card's staging) to the card as
@@ -294,5 +298,5 @@ every 8 inner samples and only when they moved, and a silent drum and silent eff
 
 ## Licence
 
-No project licence yet. The page's font is Departure Mono (SIL Open Font License, `licenses/OFL-departure-mono.txt`);
+The page's font is Departure Mono (SIL Open Font License, `licenses/OFL-departure-mono.txt`);
 the CLAP headers are MIT (`third_party/clap/LICENSE`); `src/melodee_screen.h` is MIT.

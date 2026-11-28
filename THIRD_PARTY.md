@@ -9,4 +9,4 @@
 
 Everything else in this repository is Mystik's own. The gate follows Parker and D'Angelo's
 published model (DAFx-13, cited with the inferred values in the README); no code is taken
-from it. There is no project licence yet (see the README).
+from it.

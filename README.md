@@ -8,8 +8,8 @@
     <th width="66%">macOS and Windows · CLAP</th>
   </tr>
   <tr>
-    <td align="center"><a href="docs/mystik-pages.gif"><img src="docs/mystik-pages.gif" alt="Mystik PLAY, SEQ, and MODE screens running in hdslaveOS"></a></td>
-    <td align="center"><a href="mac-clap/assets/desktop-preview.gif"><img src="mac-clap/assets/desktop-preview.gif" alt="Mystik percussion voices and sequencer during playback"></a></td>
+    <td align="center"><a href="docs/mystik-pages.webp"><img src="docs/mpc-loop.webp" alt="Mystik playing the hand drum, with the current step circling the PLAY page"></a></td>
+    <td align="center"><a href="mac-clap/assets/desktop-preview.webp"><img src="mac-clap/assets/desktop-loop.webp" alt="Mystik percussion voices and sequencer during playback"></a></td>
   </tr>
 </table>
 
@@ -17,7 +17,7 @@
 
 Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Mystik pairs an 8-mode physical membrane (nine bodies from tabla to iron bell) and a wavefolding complex oscillator — struck by eight hand strokes through a modelled 292 vactrol low-pass gate — with a six-mode sequencer, four lo-fi effects, and seven acid-rave custom pages under **hdslaveOS** (other hosts show the standard parameter list).
 
-![All seven Mystik pages overview](docs/pages.png)
+[![Mystik playing across its seven MPC pages](docs/mystik-pages.webp)](docs/pages.png)
 
 - **The gate** is the 292-style low-pass gate of Parker and D'Angelo's model: the vactrol's LDR curve, a light that
   rises in about 12 ms and falls in about 250 ms (slower as it darkens), the circuit's own transfer function for VCA,
